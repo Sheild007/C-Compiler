@@ -4,7 +4,7 @@ This project is a simple **lexer (tokenizer)** written in Rust.
 It reads source code from a `code.c` file in the project root and generates tokens using **regex-based rules**.
 
 ## Project Structure
-hello_world/
+lexer_regex/
 │-- Cargo.toml
 │-- src/
 │   ├── main.rs      # Entry point, handles file reading
