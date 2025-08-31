@@ -1,47 +1,46 @@
-<<<<<<< HEAD
 mod lexer_regex;
 mod lexer_manual;
+mod rules;
 
+use regex::Regex;
 use std::fs;
 use std::env;
 use std::io::Write;
+use rules::{RULES, Token};
 
-fn main() 
-{ 
-    let args: Vec<String> = env::args().collect();
-    if args.len() < 2 {
-        println!("Usage: {} <source_file>", args[0]);
-        return;
+// Rules-based lexer using rules.rs
+fn lex(mut input: &str) -> Vec<Token> {
+    let mut tokens = Vec::new();
+    while !input.is_empty() {
+        input = input.trim_start();
+        if input.is_empty() { break; }
+        let mut matched = false;
+        for rule in RULES.iter() {
+            if let Some(m) = rule.regex.find(input) {
+                let lexeme = m.as_str();
+                // Special check: invalid identifier like `2abc`
+                if Regex::new(r"^\d+[a-zA-Z_]").unwrap().is_match(input) {
+                    tokens.push(Token::Error(format!("Invalid identifier: {}", lexeme)));
+                    input = &input[m.end()..];
+                    matched = true;
+                    break;
+                }
+                tokens.push((rule.token_type)(lexeme));
+                input = &input[m.end()..];
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            tokens.push(Token::Error(format!("Unexpected character: {}", &input[..1])));
+            input = &input[1..];
+        }
     }
-    let filename = &args[1];
-    let code = fs::read_to_string(filename).expect("Failed to read file");
-    
-    // Run regex lexer
-    println!("--- Tokens (Regex Lexer) ---");
-    let tokens_regex = lexer_regex::lex_with_regex(&code);
-    for t in &tokens_regex {
-        println!("{:?}", t);
-    }
-    
-    // Run manual lexer
-    println!("\n--- Tokens (Manual Lexer) ---");
-    let tokens_manual = lexer_manual::lex_manual(&code);
-    for t in &tokens_manual {
-        println!("{:?}", t);
-    }
-    
-    // Write tokens to files
-    write_regex_tokens_to_file(&tokens_regex, "regex_tokens.txt");
-    write_manual_tokens_to_file(&tokens_manual, "manual_tokens.txt");
-    
-    println!("\nTokens have been written to:");
-    println!("- regex_tokens.txt (Regex-based lexer)");
-    println!("- manual_tokens.txt (Manual lexer)");
+    tokens
 }
 
 fn write_regex_tokens_to_file(tokens: &[lexer_regex::Token], filename: &str) {
     let mut file = fs::File::create(filename).expect("Failed to create file");
-    
     for token in tokens {
         let token_str = match token {
             lexer_regex::Token::Function => "T_FUNCTION".to_string(),
@@ -88,7 +87,6 @@ fn write_regex_tokens_to_file(tokens: &[lexer_regex::Token], filename: &str) {
 
 fn write_manual_tokens_to_file(tokens: &[lexer_manual::Token], filename: &str) {
     let mut file = fs::File::create(filename).expect("Failed to create file");
-    
     for token in tokens {
         let token_str = match token {
             lexer_manual::Token::Function => "T_FUNCTION".to_string(),
@@ -130,56 +128,45 @@ fn write_manual_tokens_to_file(tokens: &[lexer_manual::Token], filename: &str) {
             lexer_manual::Token::Error(s) => format!("T_ERROR(\"{}\")", s),
         };
         writeln!(file, "{}", token_str).expect("Failed to write to file");
-=======
-mod rules;
-
-use regex::Regex;
-use std::fs;
-use rules::{RULES, Token};
-
-fn lex(mut input: &str) -> Vec<Token> {
-    let mut tokens = Vec::new();
-
-    while !input.is_empty() {
-        input = input.trim_start();
-        if input.is_empty() { break; }
-
-        let mut matched = false;
-
-        for rule in RULES.iter() {
-            if let Some(m) = rule.regex.find(input) {
-                let lexeme = m.as_str();
-
-                // Special check: invalid identifier like `2abc`
-                if Regex::new(r"^\d+[a-zA-Z_]").unwrap().is_match(input) {
-                    tokens.push(Token::Error(format!("Invalid identifier: {}", lexeme)));
-                    input = &input[m.end()..];
-                    matched = true;
-                    break;
-                }
-
-                tokens.push((rule.token_type)(lexeme));
-                input = &input[m.end()..];
-                matched = true;
-                break;
-            }
-        }
-
-        if !matched {
-            tokens.push(Token::Error(format!("Unexpected character: {}", &input[..1])));
-            input = &input[1..];
-        }
     }
-
-    tokens
 }
 
 fn main() {
-    let code = fs::read_to_string("code.c").expect("Failed to read file");
-
-    let tokens = lex(&code);
-    for token in tokens {
-        println!("T_{:?}", token);
->>>>>>> 1a777ac50fc998e5f72ac4e04b9cbdc5b43ec7cd
+    let args: Vec<String> = env::args().collect();
+    if args.len() < 2 {
+        println!("Usage: {} <source_file>", args[0]);
+        return;
     }
+    let filename = &args[1];
+    let code = fs::read_to_string(filename).expect("Failed to read file");
+
+    // Run regex lexer
+    println!("--- Tokens (Regex Lexer) ---");
+    let tokens_regex = lexer_regex::lex_with_regex(&code);
+    for t in &tokens_regex {
+        println!("{:?}", t);
+    }
+
+    // Run manual lexer
+    println!("\n--- Tokens (Manual Lexer) ---");
+    let tokens_manual = lexer_manual::lex_manual(&code);
+    for t in &tokens_manual {
+        println!("{:?}", t);
+    }
+
+    // Run rules-based lexer
+    println!("\n--- Tokens (Rules-based Lexer) ---");
+    let tokens_rules = lex(&code);
+    for t in &tokens_rules {
+        println!("T_{:?}", t);
+    }
+
+    // Write tokens to files
+    write_regex_tokens_to_file(&tokens_regex, "regex_tokens.txt");
+    write_manual_tokens_to_file(&tokens_manual, "manual_tokens.txt");
+
+    println!("\nTokens have been written to:");
+    println!("- regex_tokens.txt (Regex-based lexer)");
+    println!("- manual_tokens.txt (Manual lexer)");
+}
 }
