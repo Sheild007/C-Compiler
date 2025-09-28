@@ -1,0 +1,156 @@
+translation_unit ::= preprocessor_list external_declaration_list EOF
+preprocessor_list ::= preprocessor_directive preprocessor_list | ε
+preprocessor_directive ::= include_directive | define_directive | ifdef_directive | ifndef_directive | endif_directive | macro_directive
+include_directive ::= '#include' '<stdio.h>'
+define_directive ::= '#define' Identifier replacement_list
+replacement_list ::= replacement_item replacement_list | ε
+replacement_item ::= Identifier | constant | StringLiteral
+ifdef_directive ::= '#ifdef' Identifier
+ifndef_directive ::= '#ifndef' Identifier
+endif_directive ::= '#endif'
+macro_directive ::= '#define' Identifier '(' macro_args ')' replacement_list
+macro_args ::= Identifier macro_args_tail | ε
+macro_args_tail ::= ',' Identifier macro_args_tail | ε
+comment ::= line_comment | block_comment
+line_comment ::= '//' comment_text '\n'
+block_comment ::= '/*' comment_text '*/'
+comment_text ::= comment_char comment_text | ε
+comment_char ::= any_character_except_newline_or_block_end
+printf_statement ::= 'printf' '(' printf_args ')' ';'
+printf_args ::= StringLiteral printf_args_tail | ε
+printf_args_tail ::= ',' expression printf_args_tail | ε
+struct_declaration_list ::= struct_declaration struct_declaration_list | struct_declaration
+struct_declaration ::= specifier_qualifier_list struct_declarator_list ';'
+specifier_qualifier_list ::= type_specifier specifier_qualifier_list | type_qualifier specifier_qualifier_list | type_specifier | type_qualifier
+struct_declarator_list ::= struct_declarator struct_declarator_list_tail
+struct_declarator_list_tail ::= ',' struct_declarator struct_declarator_list_tail | ε
+struct_declarator ::= declarator | declarator ':' constant_expression | ':' constant_expression
+
+
+/* initializers */
+initializer ::= assignment_expression | '{' initializer_list '}' | '{' initializer_list_comma '}'
+initializer_list ::= initializer initializer_list_tail
+initializer_list_tail ::= ',' initializer initializer_list_tail | ε
+initializer_list_comma ::= initializer_list ','
+
+
+/* parameter lists */
+parameter_type_list ::= parameter_list parameter_type_list_tail
+parameter_type_list_tail ::= ',' '...' | ε
+parameter_list ::= parameter_declaration parameter_list_tail
+parameter_list_tail ::= ',' parameter_declaration parameter_list_tail | ε
+parameter_declaration ::= declaration_specifiers declarator | declaration_specifiers abstract_declarator | declaration_specifiers
+
+
+/* statements */
+compound_statement ::= '{' compound_statement_items '}'
+compound_statement_items ::= declaration compound_statement_items | statement compound_statement_items | ε
+
+
+statement ::= labeled_statement | expression_statement | compound_statement | selection_statement | iteration_statement | jump_statement
+
+
+labeled_statement ::= Identifier ':' statement | 'case' constant_expression ':' statement | 'default' ':' statement
+
+
+expression_statement ::= expression ';' | ';'
+
+
+selection_statement ::= 'if' '(' expression ')' statement selection_statement_else | 'switch' '(' expression ')' statement
+selection_statement_else ::= 'else' statement | ε
+
+
+iteration_statement ::= 'while' '(' expression ')' statement
+	| 'do' statement 'while' '(' expression ')' ';'
+	| 'for' '(' iteration_for_init iteration_for_cond ';' iteration_for_incr ')' statement
+iteration_for_init ::= expression_statement | ε
+iteration_for_cond ::= expression | ε
+iteration_for_incr ::= expression | ε
+
+
+jump_statement ::= 'goto' Identifier ';' | 'continue' ';' | 'break' ';' | 'return' jump_return_expr ';'
+jump_return_expr ::= expression | ε
+
+
+/* expressions */
+expression ::= assignment_expression expression_tail
+expression_tail ::= ',' assignment_expression expression_tail | ε
+
+
+assignment_expression ::= conditional_expression | unary_expression assignment_operator assignment_expression
+assignment_operator ::= '=' | '*=' | '/=' | '%=' | '+=' | '-=' | '<<=' | '>>=' | '&=' | '^=' | '|='
+
+
+conditional_expression ::= logical_or_expression conditional_expression_tail
+conditional_expression_tail ::= '?' expression ':' conditional_expression | ε
+
+
+logical_or_expression ::= logical_and_expression logical_or_expression_tail
+logical_or_expression_tail ::= '||' logical_and_expression logical_or_expression_tail | ε
+logical_and_expression ::= inclusive_or_expression logical_and_expression_tail
+logical_and_expression_tail ::= '&&' inclusive_or_expression logical_and_expression_tail | ε
+inclusive_or_expression ::= exclusive_or_expression inclusive_or_expression_tail
+inclusive_or_expression_tail ::= '|' exclusive_or_expression inclusive_or_expression_tail | ε
+exclusive_or_expression ::= and_expression exclusive_or_expression_tail
+exclusive_or_expression_tail ::= '^' and_expression exclusive_or_expression_tail | ε
+and_expression ::= equality_expression and_expression_tail
+and_expression_tail ::= '&' equality_expression and_expression_tail | ε
+equality_expression ::= relational_expression equality_expression_tail
+equality_expression_tail ::= '==' relational_expression equality_expression_tail | '!=' relational_expression equality_expression_tail | ε
+relational_expression ::= shift_expression relational_expression_tail
+relational_expression_tail ::= '<' shift_expression relational_expression_tail | '>' shift_expression relational_expression_tail | '<=' shift_expression relational_expression_tail | '>=' shift_expression relational_expression_tail | ε
+shift_expression ::= additive_expression shift_expression_tail
+shift_expression_tail ::= '<<' additive_expression shift_expression_tail | '>>' additive_expression shift_expression_tail | ε
+additive_expression ::= multiplicative_expression additive_expression_tail
+additive_expression_tail ::= '+' multiplicative_expression additive_expression_tail | '-' multiplicative_expression additive_expression_tail | ε
+multiplicative_expression ::= cast_expression multiplicative_expression_tail
+multiplicative_expression_tail ::= '*' cast_expression multiplicative_expression_tail | '/' cast_expression multiplicative_expression_tail | '%' cast_expression multiplicative_expression_tail | ε
+
+
+cast_expression ::= unary_expression | '(' type_name ')' cast_expression
+
+
+unary_expression ::= postfix_expression
+| '++' unary_expression
+| '--' unary_expression
+| unary_operator cast_expression
+| 'sizeof' unary_expression
+| 'sizeof' '(' type_name ')'
+
+
+unary_operator ::= '&' | '*' | '+' | '-' | '~' | '!'
+
+
+postfix_expression ::= primary_expression postfix_expression_tail
+postfix_expression_tail ::= postfix_tail postfix_expression_tail | ε
+postfix_tail ::= '[' expression ']' | '(' postfix_arg_expr ')' | '.' Identifier | '->' Identifier | '++' | '--'
+postfix_arg_expr ::= argument_expression_list | ε
+
+
+primary_expression ::= Identifier | constant | StringLiteral | '(' expression ')'
+
+
+argument_expression_list ::= assignment_expression argument_expression_list_tail
+argument_expression_list_tail ::= ',' assignment_expression argument_expression_list_tail | ε
+
+
+constant ::= IntegerConstant | FloatingConstant | CharacterConstant
+constant_expression ::= conditional_expression
+
+
+type_name ::= specifier_qualifier_list type_name_tail
+type_name_tail ::= abstract_declarator | ε
+
+
+abstract_declarator ::= pointer | pointer direct_abstract_declarator | direct_abstract_declarator | direct_abstract_declarator_only
+direct_abstract_declarator_only ::= direct_abstract_declarator
+
+
+direct_abstract_declarator ::= '(' abstract_declarator ')' | direct_abstract_declarator_bracket | direct_abstract_declarator_paren
+direct_abstract_declarator_bracket ::= direct_abstract_declarator '[' direct_abstract_declarator_bracket_tail ']'
+direct_abstract_declarator_bracket_tail ::= constant_expression | ε
+direct_abstract_declarator_paren ::= direct_abstract_declarator '(' direct_abstract_declarator_paren_tail ')'
+direct_abstract_declarator_paren_tail ::= parameter_type_list | ε
+
+
+/* end grammar */
