@@ -2,6 +2,7 @@ use regex::Regex;
 use lazy_static::lazy_static;
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum Token {
     // Keywords
     KeywordInt,
@@ -68,6 +69,16 @@ pub struct Rule {
 
 lazy_static! {
     pub static ref RULES: Vec<Rule> = vec![
+        // ===== Comments (must come first) =====
+        Rule {
+            regex: Regex::new(r"^//.*").unwrap(),
+            token_type: |s| Token::Comment(s.to_string()),
+        },
+        Rule {
+            regex: Regex::new(r"^/\*.*?\*/").unwrap(),
+            token_type: |s| Token::Comment(s.to_string()),
+        },
+        
         // ===== Keywords =====
         Rule { regex: Regex::new(r"^\bint\b").unwrap(),    token_type: |_| Token::KeywordInt },
         Rule { regex: Regex::new(r"^\bfloat\b").unwrap(),  token_type: |_| Token::KeywordFloat },
@@ -83,7 +94,11 @@ lazy_static! {
         // ===== Literals =====
         Rule {
             regex: Regex::new(r#"^"([^"\\]|\\.)*""#).unwrap(),
-            token_type: |s| Token::StringLit(s.to_string()),
+            token_type: |s| {
+                // Remove surrounding quotes
+                let content = &s[1..s.len()-1];
+                Token::StringLit(content.to_string())
+            },
         },
         Rule {
             regex: Regex::new(r"^'([^'\\]|\\.)'").unwrap(),
@@ -133,15 +148,5 @@ lazy_static! {
         Rule { regex: Regex::new(r"^\]").unwrap(), token_type: |_| Token::BracketR },
         Rule { regex: Regex::new(r"^;").unwrap(),  token_type: |_| Token::Semicolon },
         Rule { regex: Regex::new(r"^,").unwrap(),  token_type: |_| Token::Comma },
-
-        // ===== Comments =====
-        Rule {
-            regex: Regex::new(r"^//.*").unwrap(),
-            token_type: |s| Token::Comment(s.to_string()),
-        },
-        Rule {
-            regex: Regex::new(r"^/\*.*?\*/").unwrap(),
-            token_type: |s| Token::Comment(s.to_string()),
-        },
     ];
 }

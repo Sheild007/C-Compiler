@@ -1,9 +1,9 @@
-// Lexer with regex
-// Requires: regex = "1.10" in Cargo.toml
+
 
 use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum Token {
     Function,
     Int,
@@ -47,7 +47,7 @@ pub enum Token {
 pub fn lex_with_regex(input: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     let re = Regex::new(
-        r#"(?P<ws>\s+)|(?P<comment>//.*)|(?P<function>fn)\b|(?P<int>int)\b|(?P<float>float)\b|(?P<string>string)\b|(?P<bool>bool)\b|(?P<return>return)\b|(?P<if>if)\b|(?P<else>else)\b|(?P<while>while)\b|(?P<for>for)\b|(?P<identifier>[a-zA-Z_][a-zA-Z0-9_]*)|(?P<intlit>\d+)|(?P<floatlit>\d+\.\d+)|(?P<stringlit>"([^\\"]|\\.)*")|(?P<assignop>=)|(?P<equalsop>==)|(?P<notequalsop>!=)|(?P<lesseqop><=)|(?P<greatereqop>>=)|(?P<lessop><)|(?P<greaterop>>)|(?P<andop>&&)|(?P<orop>\|\|)|(?P<bitandop>&)|(?P<bitorop>\|)|(?P<parenl>\()|(?P<parenr>\))|(?P<bracel>\{)|(?P<bracer>\})|(?P<bracketl>\[)|(?P<bracketr>\])|(?P<comma>,)|(?P<semicolon>;)|(?P<quotes>")"#
+        r#"(?P<ws>\s+)|(?P<comment>//.*)|(?P<function>fn)\b|(?P<return>return)\b|(?P<if>if)\b|(?P<else>else)\b|(?P<while>while)\b|(?P<for>for)\b|(?P<int>int)\b|(?P<float>float)\b|(?P<string>string)\b|(?P<bool>bool)\b|(?P<floatlit>\d+\.\d+)|(?P<intlit>\d+)|(?P<stringlit>"([^\\"]|\\.)*")|(?P<equalsop>==)|(?P<notequalsop>!=)|(?P<lesseqop><=)|(?P<greatereqop>>=)|(?P<andop>&&)|(?P<orop>\|\|)|(?P<assignop>=)|(?P<lessop><)|(?P<greaterop>>)|(?P<bitandop>&)|(?P<bitorop>\|)|(?P<identifier>[a-zA-Z_][a-zA-Z0-9_]*)|(?P<parenl>\()|(?P<parenr>\))|(?P<bracel>\{)|(?P<bracer>\})|(?P<bracketl>\[)|(?P<bracketr>\])|(?P<comma>,)|(?P<semicolon>;)|(?P<quotes>")"#
     ).unwrap();
     let mut pos = 0;
     while pos < input.len() {

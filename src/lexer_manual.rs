@@ -1,7 +1,7 @@
-// Lexer without regex or third-party libraries
-// Pure state machine and string matching
+
 
 #[derive(Debug, Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum Token {
     Function,
     Int,
@@ -177,6 +177,7 @@ pub fn lex_manual(input: &str) -> Vec<Token> {
             '>' => { tokens.push(Token::GreaterOp); },
             '&' => { tokens.push(Token::BitAndOp); },
             '|' => { tokens.push(Token::BitOrOp); },
+            '*' => { tokens.push(Token::Identifier("*".to_string())); }, // Add star support
             '(' => { tokens.push(Token::ParenL); },
             ')' => { tokens.push(Token::ParenR); },
             '{' => { tokens.push(Token::BraceL); },
