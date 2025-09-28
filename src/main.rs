@@ -1,6 +1,7 @@
 mod lexer_regex;
 mod lexer_manual;
 mod rules;
+mod parser;
 
 use regex::Regex;
 use std::fs;
@@ -78,7 +79,59 @@ fn write_regex_tokens_to_file(tokens: &[lexer_regex::Token], filename: &str) {
             lexer_regex::Token::Comma => "T_COMMA".to_string(),
             lexer_regex::Token::Semicolon => "T_SEMICOLON".to_string(),
             lexer_regex::Token::Quotes => "T_QUOTES".to_string(),
+            lexer_regex::Token::Colon => "T_COLON".to_string(),
+            lexer_regex::Token::Plus => "T_PLUS".to_string(),
+            lexer_regex::Token::Minus => "T_MINUS".to_string(),
+            lexer_regex::Token::Mult => "T_MULT".to_string(),
+            lexer_regex::Token::Div => "T_DIV".to_string(),
+            lexer_regex::Token::Mod => "T_MOD".to_string(),
+            lexer_regex::Token::Xor => "T_XOR".to_string(),
+            lexer_regex::Token::Not => "T_NOT".to_string(),
+            lexer_regex::Token::Question => "T_QUESTION".to_string(),
+            lexer_regex::Token::Dot => "T_DOT".to_string(),
+            lexer_regex::Token::Arrow => "T_ARROW".to_string(),
+            lexer_regex::Token::PlusPlus => "T_PLUSPLUS".to_string(),
+            lexer_regex::Token::MinusMinus => "T_MINUSMINUS".to_string(),
+            lexer_regex::Token::PlusAssign => "T_PLUSASSIGN".to_string(),
+            lexer_regex::Token::MinusAssign => "T_MINUSASSIGN".to_string(),
+            lexer_regex::Token::MultAssign => "T_MULTASSIGN".to_string(),
+            lexer_regex::Token::DivAssign => "T_DIVASSIGN".to_string(),
+            lexer_regex::Token::ModAssign => "T_MODASSIGN".to_string(),
+            lexer_regex::Token::LShiftAssign => "T_LSHIFTASSIGN".to_string(),
+            lexer_regex::Token::RShiftAssign => "T_RSHIFTASSIGN".to_string(),
+            lexer_regex::Token::AndAssign => "T_ANDASSIGN".to_string(),
+            lexer_regex::Token::XorAssign => "T_XORASSIGN".to_string(),
+            lexer_regex::Token::OrAssign => "T_ORASSIGN".to_string(),
+            lexer_regex::Token::LShift => "T_LSHIFT".to_string(),
+            lexer_regex::Token::RShift => "T_RSHIFT".to_string(),
+            lexer_regex::Token::Hash => "T_HASH".to_string(),
             lexer_regex::Token::Comment(s) => format!("T_COMMENT(\"{}\")", s),
+            lexer_regex::Token::BlockComment(s) => format!("T_BLOCKCOMMENT(\"{}\")", s),
+            lexer_regex::Token::Preprocessor(s) => format!("T_PREPROCESSOR(\"{}\")", s),
+            lexer_regex::Token::Enum => "T_ENUM".to_string(),
+            lexer_regex::Token::Struct => "T_STRUCT".to_string(),
+            lexer_regex::Token::Typedef => "T_TYPEDEF".to_string(),
+            lexer_regex::Token::Static => "T_STATIC".to_string(),
+            lexer_regex::Token::Const => "T_CONST".to_string(),
+            lexer_regex::Token::Volatile => "T_VOLATILE".to_string(),
+            lexer_regex::Token::Extern => "T_EXTERN".to_string(),
+            lexer_regex::Token::Auto => "T_AUTO".to_string(),
+            lexer_regex::Token::Register => "T_REGISTER".to_string(),
+            lexer_regex::Token::Case => "T_CASE".to_string(),
+            lexer_regex::Token::Default => "T_DEFAULT".to_string(),
+            lexer_regex::Token::Break => "T_BREAK".to_string(),
+            lexer_regex::Token::Continue => "T_CONTINUE".to_string(),
+            lexer_regex::Token::Goto => "T_GOTO".to_string(),
+            lexer_regex::Token::Switch => "T_SWITCH".to_string(),
+            lexer_regex::Token::Do => "T_DO".to_string(),
+            lexer_regex::Token::Union => "T_UNION".to_string(),
+            lexer_regex::Token::Signed => "T_SIGNED".to_string(),
+            lexer_regex::Token::Unsigned => "T_UNSIGNED".to_string(),
+            lexer_regex::Token::Short => "T_SHORT".to_string(),
+            lexer_regex::Token::Long => "T_LONG".to_string(),
+            lexer_regex::Token::Double => "T_DOUBLE".to_string(),
+            lexer_regex::Token::Char => "T_CHAR".to_string(),
+            lexer_regex::Token::Void => "T_VOID".to_string(),
             lexer_regex::Token::Error(s) => format!("T_ERROR(\"{}\")", s),
         };
         writeln!(file, "{}", token_str).expect("Failed to write to file");
@@ -124,6 +177,7 @@ fn write_manual_tokens_to_file(tokens: &[lexer_manual::Token], filename: &str) {
             lexer_manual::Token::Comma => "T_COMMA".to_string(),
             lexer_manual::Token::Semicolon => "T_SEMICOLON".to_string(),
             lexer_manual::Token::Quotes => "T_QUOTES".to_string(),
+            lexer_manual::Token::Colon => "T_COLON".to_string(),
             lexer_manual::Token::Comment(s) => format!("T_COMMENT(\"{}\")", s),
             lexer_manual::Token::Error(s) => format!("T_ERROR(\"{}\")", s),
         };
@@ -168,5 +222,18 @@ fn main() {
     println!("\nTokens have been written to:");
     println!("- regex_tokens.txt (Regex-based lexer)");
     println!("- manual_tokens.txt (Manual lexer)");
+
+    // Parse using regex lexer tokens
+    println!("\n--- Parsing AST ---");
+    println!("Number of tokens: {}", tokens_regex.len());
+    let mut parser = parser::Parser::new(tokens_regex);
+    match parser.parse_translation_unit() {
+        Ok(ast) => {
+            println!("AST: {:#?}", ast);
+        }
+        Err(error) => {
+            println!("Parse Error: {:?}", error);
+        }
+    }
 }
 
