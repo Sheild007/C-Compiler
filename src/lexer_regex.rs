@@ -107,7 +107,9 @@ pub fn lex_with_regex(input: &str) -> Vec<Token> {
             let s = &input[pos + m.start()..pos + m.end()];
             let caps = re.captures(s).unwrap();
             if caps.name("ws").is_some() {
-                // skip
+                // skip whitespace
+                pos += m.end();
+                continue;
             } else if let Some(_) = caps.name("comment") {
                 tokens.push(Token::Comment(s.to_string()));
             } else if let Some(_) = caps.name("blockcomment") {
