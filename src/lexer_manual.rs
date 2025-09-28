@@ -38,6 +38,7 @@ pub enum Token {
     Comma,
     Semicolon,
     Quotes,
+    Colon,
     Comment(String),
     Error(String),
 }
@@ -186,6 +187,7 @@ pub fn lex_manual(input: &str) -> Vec<Token> {
             ']' => { tokens.push(Token::BracketR); },
             ',' => { tokens.push(Token::Comma); },
             ';' => { tokens.push(Token::Semicolon); },
+            ':' => { tokens.push(Token::Colon); },
             '"' => { tokens.push(Token::Quotes); },
             _ => { tokens.push(Token::Error(format!("Unknown char: {}", c))); },
         }
