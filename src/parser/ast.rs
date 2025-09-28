@@ -40,4 +40,39 @@ pub enum ExternalDeclaration {
     FunctionDeclaration(FunctionDeclaration), // int func(int x);
 }
 
-#
+#[derive(Debug, Clone)]
+pub struct PrintfStatement {
+    pub args: Vec<PrintfArg>, // printf_args
+}
+
+#[derive(Debug, Clone)]
+pub struct FunctionDefinition {
+    pub return_type: String, // e.g., "int", "void"
+    pub name: String, // function name
+    pub parameters: Vec<Parameter>, // function parameters
+    pub body: Vec<Statement>, // function body statements
+}
+
+#[derive(Debug, Clone)]
+pub struct Parameter {
+    pub param_type: String, // e.g., "int", "float"
+    pub name: String, // parameter name
+}
+
+#[derive(Debug, Clone)]
+pub enum Statement {
+    Declaration(VariableDeclaration), // int x = 5;
+    Assignment(String, Expression), // variable_name, expression
+    Return(Option<Expression>), // return statement
+    Expression(Expression), // expression statement
+    Block(Vec<Statement>), // { ... } block
+    If(Expression, Box<Statement>, Option<Box<Statement>>), // if (cond) stmt [else stmt]
+    While(Expression, Box<Statement>), // while (cond) stmt
+    For(Option<Box<Statement>>, Option<Expression>, Option<Expression>, Box<Statement>), // for (init; cond; update) stmt
+    DoWhile(Box<Statement>, Expression), // do stmt while (cond);
+    Switch(Expression, Vec<Case>), // switch (expr) { cases }
+    Break, // break;
+    Continue, // continue;
+    Goto(String), // goto label;
+    Label(String, Box<Statement>), // label: stmt
+}
