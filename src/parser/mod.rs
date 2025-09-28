@@ -460,4 +460,315 @@ impl Parser {
         })
     }
 
-   
+   fn parse_function_parameter(&mut self) -> Option<Parameter> {
+        // Parse parameter type
+        let param_type = match &self.tokens[self.pos] {
+            Token::Int => { self.pos += 1; "int".to_string() },
+            Token::Float => { self.pos += 1; "float".to_string() },
+            Token::Char => { self.pos += 1; "char".to_string() },
+            Token::Double => { self.pos += 1; "double".to_string() },
+            Token::Long => { self.pos += 1; "long".to_string() },
+            Token::Short => { self.pos += 1; "short".to_string() },
+            _ => return None,
+        };
+
+        // Parse parameter name
+        let name = match &self.tokens[self.pos] {
+            Token::Identifier(id) => {
+                self.pos += 1;
+                id.clone()
+            }
+            _ => return None,
+        };
+
+        Some(Parameter { param_type, name })
+    }
+
+    fn parse_statement(&mut self) -> Option<Statement> {
+        if self.pos >= self.tokens.len() {
+            return None;
+        }
+
+        match &self.tokens[self.pos] {
+            Token::Return => {
+                self.pos += 1; // Consume 'return'
+                let expr = if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::Semicolon {
+                    Some(self.parse_expression().unwrap_or(Expression::Identifier("".to_string())))
+                } else {
+                    None
+                };
+                
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                    self.pos += 1; // Consume ';'
+                }
+                
+                Some(Statement::Return(expr))
+            }
+            Token::If => {
+                self.pos += 1; // Consume 'if'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
+                    self.pos += 1; // Consume '('
+                    let condition = self.parse_expression()?;
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
+                        self.pos += 1; // Consume ')'
+                        let then_stmt = self.parse_statement()?;
+                        let else_stmt = if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Else {
+                            self.pos += 1; // Consume 'else'
+                            Some(self.parse_statement()?)
+                        } else {
+                            None
+                        };
+                        Some(Statement::If(condition, Box::new(then_stmt), else_stmt.map(Box::new)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::For => {
+                println!("DEBUG: Found For token at position {}", self.pos);
+                self.pos += 1; // Consume 'for'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
+                    self.pos += 1; // Consume '('
+                    
+                    // Parse initialization (optional)
+                    let init = if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::Semicolon {
+                        Some(Box::new(self.parse_statement()?))
+                    } else {
+                        None
+                    };
+                    
+                    // Parse condition (optional)
+                    let condition = if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::Semicolon {
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
+                    
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                        self.pos += 1; // Consume ';'
+                    }
+                    
+                    // Parse update (optional)
+                    let update = if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::ParenR {
+                        Some(self.parse_expression()?)
+                    } else {
+                        None
+                    };
+                    
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
+                        self.pos += 1; // Consume ')'
+                        let body = self.parse_statement()?;
+                        Some(Statement::For(init, condition, update, Box::new(body)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::While => {
+                self.pos += 1; // Consume 'while'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
+                    self.pos += 1; // Consume '('
+                    let condition = self.parse_expression()?;
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
+                        self.pos += 1; // Consume ')'
+                        let body = self.parse_statement()?;
+                        Some(Statement::While(condition, Box::new(body)))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::Do => {
+                self.pos += 1; // Consume 'do'
+                let body = self.parse_statement()?;
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::While {
+                    self.pos += 1; // Consume 'while'
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
+                        self.pos += 1; // Consume '('
+                        let condition = self.parse_expression()?;
+                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
+                            self.pos += 1; // Consume ')'
+                            if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                                self.pos += 1; // Consume ';'
+                            }
+                            Some(Statement::DoWhile(Box::new(body), condition))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::Switch => {
+                self.pos += 1; // Consume 'switch'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
+                    self.pos += 1; // Consume '('
+                    let expr = self.parse_expression()?;
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
+                        self.pos += 1; // Consume ')'
+                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceL {
+                            self.pos += 1; // Consume '{'
+                            let mut cases = Vec::new();
+                            
+                            while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
+                                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Case {
+                                    self.pos += 1; // Consume 'case'
+                                    let case_expr = self.parse_expression()?;
+                                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Colon {
+                                        self.pos += 1; // Consume ':'
+                                        let mut stmts = Vec::new();
+                                        while self.pos < self.tokens.len() && 
+                                              self.tokens[self.pos] != Token::Case && 
+                                              self.tokens[self.pos] != Token::Default && 
+                                              self.tokens[self.pos] != Token::BraceR {
+                                            if let Some(stmt) = self.parse_statement() {
+                                                stmts.push(stmt);
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        cases.push(Case::Case(case_expr, stmts));
+                                    }
+                                } else if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Default {
+                                    self.pos += 1; // Consume 'default'
+                                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Colon {
+                                        self.pos += 1; // Consume ':'
+                                        let mut stmts = Vec::new();
+                                        while self.pos < self.tokens.len() && 
+                                              self.tokens[self.pos] != Token::Case && 
+                                              self.tokens[self.pos] != Token::Default && 
+                                              self.tokens[self.pos] != Token::BraceR {
+                                            if let Some(stmt) = self.parse_statement() {
+                                                stmts.push(stmt);
+                                            } else {
+                                                break;
+                                            }
+                                        }
+                                        cases.push(Case::Default(stmts));
+                                    }
+                                } else {
+                                    break;
+                                }
+                            }
+                            
+                            if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
+                                self.pos += 1; // Consume '}'
+                                Some(Statement::Switch(expr, cases))
+                            } else {
+                                None
+                            }
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::Break => {
+                self.pos += 1; // Consume 'break'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                    self.pos += 1; // Consume ';'
+                }
+                Some(Statement::Break)
+            }
+            Token::Continue => {
+                self.pos += 1; // Consume 'continue'
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                    self.pos += 1; // Consume ';'
+                }
+                Some(Statement::Continue)
+            }
+            Token::Goto => {
+                self.pos += 1; // Consume 'goto'
+                if self.pos < self.tokens.len() {
+                    if let Token::Identifier(label) = &self.tokens[self.pos] {
+                        self.pos += 1; // Consume label
+                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                            self.pos += 1; // Consume ';'
+                        }
+                        Some(Statement::Goto(label.clone()))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            }
+            Token::BraceL => {
+                self.pos += 1; // Consume '{'
+                let mut stmts = Vec::new();
+                while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
+                    if let Some(stmt) = self.parse_statement() {
+                        stmts.push(stmt);
+                    } else {
+                        break;
+                    }
+                }
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
+                    self.pos += 1; // Consume '}'
+                }
+                Some(Statement::Block(stmts))
+            }
+            Token::Int | Token::Float | Token::Char | Token::Double | Token::Long | Token::Short => {
+                // Variable declaration
+                let _var_type = match &self.tokens[self.pos] {
+                    Token::Int => { self.pos += 1; "int".to_string() },
+                    Token::Float => { self.pos += 1; "float".to_string() },
+                    Token::Char => { self.pos += 1; "char".to_string() },
+                    Token::Double => { self.pos += 1; "double".to_string() },
+                    Token::Long => { self.pos += 1; "long".to_string() },
+                    Token::Short => { self.pos += 1; "short".to_string() },
+                    _ => return None,
+                };
+
+                let var_name = match &self.tokens[self.pos] {
+                    Token::Identifier(id) => {
+                        self.pos += 1;
+                        id.clone()
+                    }
+                    _ => return None,
+                };
+
+                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                    self.pos += 1; // Consume ';'
+                }
+
+                Some(Statement::Declaration(VariableDeclaration {
+                    storage_class: None,
+                    type_qualifiers: vec![],
+                    type_specifier: TypeSpecifier::Int, // Default to int for now
+                    declarator: Declarator {
+                        name: var_name,
+                        pointer_depth: 0,
+                        array_sizes: vec![],
+                        function_params: None,
+                    },
+                    initializer: None,
+                }))
+            }
+            _ => {
+                // Try to parse as expression statement
+                if let Some(expr) = self.parse_expression() {
+                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
+                        self.pos += 1; // Consume ';'
+                    }
+                    Some(Statement::Expression(expr))
+                } else {
+                    None
+                }
+            }
+        }
+    }
+}
