@@ -99,7 +99,6 @@ pub struct ScopeAnalyzer{
 impl ScopeAnalyzer{
 
     pub fn new () -> Self{
-
         let global_scope = Rc :: new(ScopeNode:: new(None));
         let mut all_scopes = Vec :: new();
         all_scopes.push(global).clone());
@@ -125,24 +124,21 @@ impl ScopeAnalyzer{
         }
     }
 
-    pub fn declare_symbol(&mut selfm name:String, kind: SymbolKind)->Result(),ScopeError{
-
-        //check for redefination in current scope_level
+    pub fn declare_symbol(&mut self, name:String, kind: SymbolKind)->Result<(),ScopeError>{
+      //check for redefination in current scope_level
         if self.current_scope.lookup_current_scope(&name).is_some(){
             let error = match kind{
-                SymbolKind:: Fucntion{..}=> ScopeError::FunctionPrototypeRedefinition(name),
+                SymbolKind::Function{..}=> ScopeError::FunctionPrototypeRedefinition(name),
                 _=> ScopeError::VariableRedefinition(name),
             };
             self.errors.push(error.clone());
             return Err(error);
-            }
-
-
         }
-        let symbol=Symbol{
-            name:name.clone(),
-            kind,
-            scope_level:self.current_scope.scope_level,
+    
+         let symbol=Symbol{
+        name:name.clone(),
+        kind,
+        scope_level:self.current_scope.scope_level,
         };
 
         self.current_scope.insert_symbol(name,symbol);
@@ -166,8 +162,8 @@ impl ScopeAnalyzer{
         }
     }
 
-    //verify whether a Fucntion is declared in any visible scope before it is used.
-    pub fn check_fucntion_call(&mut self, name:&str)->Result<()>, ScopeError>{
+    //verify whether a Function is declared in any visible scope before it is used.
+    pub fn check_function_call(&mut self, name:&str)->Result<(), ScopeError>{
         match self.lookup_symbol(name){
             Some(symbol)=> match &symbol.kind{
                 SymbolKind::Function{..}=>Ok(()),
@@ -222,4 +218,15 @@ impl ScopeAnalyzer{
             self.analyze_initializer(initializer);
         }
     } 
+    fn analyze_function_declaration(&mut self, func_decl: &FunctionDeclaration) {
+        let symbol_kind = SymbolKind::Function {
+            return_type: func_decl.return_type.clone(),
+            parameters: func_decl.parameters.clone(),
+            is_defined: false,
+        };
+
+        if let Err(_) = self.declare_symbol(func_decl.name.clone(), symbol_kind) {
+         
+        }
+    }
 }
