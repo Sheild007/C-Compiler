@@ -229,4 +229,51 @@ impl ScopeAnalyzer{
          
         }
     }
+    fn analyze_function_definition(&mut self, func_def: &FunctionDefinition) {
+        
+        let symbol_kind = SymbolKind::Function {
+            return_type: func_def.return_type.clone(),
+            parameters: func_def.parameters.clone(),
+            is_defined: true,
+        };
+
+        if let Err(_) = self.declare_symbol(func_def.name.clone(), symbol_kind) {
+            
+            if let Some(existing) = self.lookup_symbol(&func_def.name) {
+                if let SymbolKind::Function {
+                    is_defined: true, ..
+                } = existing.kind
+                {
+                    // Function already defined - error already recorded
+                }
+            }
+        }
+
+      
+        self.enter_scope();
+
+        
+        for param in &func_def.parameters {
+            let param_kind = SymbolKind::Parameter {
+                param_type: param.param_type.clone(),
+            };
+            if let Err(_) = self.declare_symbol(param.name.clone(), param_kind) {
+                // Parameter redefinition - error already recorded
+            }
+        }
+
+       
+        for stmt in &func_def.body {
+            self.analyze_statement(stmt);
+        }
+
+        // Exit function scope
+        self.exit_scope();
+    
+    }
+
+
+
+
+
 }

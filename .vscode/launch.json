@@ -1,0 +1,62 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug C Compiler",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=hello_rust",
+                    "--package=hello_rust"
+                ],
+                "filter": {
+                    "name": "hello_rust",
+                    "kind": "bin"
+                }
+            },
+            "args": ["sample.c"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug C Compiler (code.c)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=hello_rust",
+                    "--package=hello_rust"
+                ],
+                "filter": {
+                    "name": "hello_rust",
+                    "kind": "bin"
+                }
+            },
+            "args": ["code.c"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug C Compiler (comprehensive_test.c)",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=hello_rust",
+                    "--package=hello_rust"
+                ],
+                "filter": {
+                    "name": "hello_rust",
+                    "kind": "bin"
+                }
+            },
+            "args": ["comprehensive_test.c"],
+            "cwd": "${workspaceFolder}",
+            "console": "integratedTerminal"
+        }
+    ]
+}

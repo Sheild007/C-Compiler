@@ -1,0 +1,81 @@
+T_PREPROCESSOR("#include")
+T_LESSOP
+T_IDENTIFIER("stdio")
+T_DOT
+T_IDENTIFIER("h")
+T_GREATEROP
+T_INT
+T_IDENTIFIER("global_var")
+T_ASSIGNOP
+T_INTLIT(10)
+T_SEMICOLON
+T_INT
+T_IDENTIFIER("main")
+T_PARENL
+T_PARENR
+T_BRACEL
+T_INT
+T_IDENTIFIER("a")
+T_ASSIGNOP
+T_INTLIT(10)
+T_SEMICOLON
+T_IDENTIFIER("printf")
+T_PARENL
+T_STRINGLIT("Outer a = %d\n")
+T_COMMA
+T_IDENTIFIER("a")
+T_PARENR
+T_SEMICOLON
+T_BRACEL
+T_INT
+T_IDENTIFIER("a")
+T_ASSIGNOP
+T_INTLIT(20)
+T_SEMICOLON
+T_COMMENT("// This should be OK - shadows outer 'a'")
+T_INT
+T_IDENTIFIER("b")
+T_ASSIGNOP
+T_INTLIT(30)
+T_SEMICOLON
+T_IDENTIFIER("printf")
+T_PARENL
+T_STRINGLIT("Inner a = %d, b = %d\n")
+T_COMMA
+T_IDENTIFIER("a")
+T_COMMA
+T_IDENTIFIER("b")
+T_PARENR
+T_SEMICOLON
+T_BRACEL
+T_INT
+T_IDENTIFIER("c")
+T_ASSIGNOP
+T_IDENTIFIER("a")
+T_PLUS
+T_IDENTIFIER("b")
+T_SEMICOLON
+T_COMMENT("// Should be OK - accesses outer variables")
+T_IDENTIFIER("printf")
+T_PARENL
+T_STRINGLIT("c = %d\n")
+T_COMMA
+T_IDENTIFIER("c")
+T_PARENR
+T_SEMICOLON
+T_BRACER
+T_COMMENT("// printf("c = %d\n", c);  // Would be error - c out of scope")
+T_BRACER
+T_IDENTIFIER("printf")
+T_PARENL
+T_STRINGLIT("Outer a again = %d\n")
+T_COMMA
+T_IDENTIFIER("a")
+T_PARENR
+T_SEMICOLON
+T_COMMENT("// Should be OK")
+T_COMMENT("// printf("b = %d\n", b);  // Would be error - b out of scope")
+T_RETURN
+T_INTLIT(0)
+T_SEMICOLON
+T_BRACER
