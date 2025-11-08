@@ -286,7 +286,7 @@ impl ScopeAnalyzer{
             }
         }
     }
-     fn analyze_expression(&mut self, expr: &Expression) {
+    fn analyze_expression(&mut self, expr: &Expression) {
         match expr {
             Expression::Identifier(name) => {
                 if let Err(_) = self.check_variable_access(name) {
@@ -333,6 +333,63 @@ impl ScopeAnalyzer{
         
             Expression::Constant(_) | Expression::StringLiteral(_) => {
                 // No scope analysis needed for literals
+            }
+        }
+    }
+    fn analyze_statement(&mut self, stmt: &Statement) {
+        match stmt {
+            Statement::Declaration(var_decl) => {
+                self.analyze_variable_declaration(var_decl);
+            }
+            Statement::Assignment(var_name, expr) => {
+                // Check if variable exists
+                if let Err(_) = self.check_variable_access(var_name) {
+                    // Error already recorded
+                }
+                self.analyze_expression(expr);
+            }
+            Statement::Return(expr_opt) => {
+                if let Some(expr) = expr_opt {
+                    self.analyze_expression(expr);
+                }
+            }
+            Statement::Expression(expr) => {
+                self.analyze_expression(expr);
+            }
+            Statement::Block(statements) => {
+                self.enter_scope();
+                for stmt in statements {
+                    self.analyze_statement(stmt);
+                }
+                self.exit_scope();
+            }
+            Statement::If(condition, then_stmt, else_stmt) => {
+                self.analyze_expression(condition);
+                self.analyze_statement(then_stmt);
+                if let Some(else_stmt) = else_stmt {
+                    self.analyze_statement(else_stmt);
+                }
+            }
+            Statement::While(condition, body) => {
+                self.analyze_expression(condition);
+                self.analyze_statement(body);
+            }
+            Statement::For(init, condition, update, body) => {
+                self.enter_scope(); // For loop creates its own scope
+                if let Some(init) = init {
+                    self.analyze_statement(init);
+                }
+                if let Some(condition) = condition {
+                    self.analyze_expression(condition);
+                }
+                if let Some(update) = update {
+                    self.analyze_expression(update);
+                }
+                self.analyze_statement(body);
+                self.exit_scope();
+            }
+            Statement::Break => {
+                // No scope analysis needed
             }
         }
     }
