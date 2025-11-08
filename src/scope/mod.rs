@@ -212,5 +212,14 @@ impl ScopeAnalyzer{
             }
         }
     }
-    
+    fn analyze_variable_declaration(&mut self, var_decl:&VariableDeclaration){
+        let symbol_kind= SymbolKind::Variable{
+            type_spec: var_decl.type_specifier.clone(),
+            storage_class:var_decl.storage_class.clone(),
+        }
+        if let Err(_)=self.declare_symbol(var_decl.declarator.name.clone()),{}
+        if let Some(initializer)=&var_decl.initializer{
+            self.analyze_initializer(initializer);
+        }
+    } 
 }
