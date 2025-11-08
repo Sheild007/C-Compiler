@@ -393,7 +393,61 @@ impl ScopeAnalyzer{
             }
         }
     }
+    pub fn get_errors(&self) -> &[ScopeError] {
+        &self.errors
+    }
 
+    pub fn has_errors(&self) -> bool {
+        !self.errors.is_empty()
+    }
+
+    pub fn print_symbol_table(&self) {
+        println!("--- Symbol Table (All Scopes) ---");
+
+       
+        for scope in &self.all_scopes {
+            let scope_name = match scope.scope_level {
+                0 => "Global".to_string(),
+                1 => "Function".to_string(),
+                level => format!("Block-{}", level - 1),
+            };
+
+            self.print_scope_symbols(scope, &scope_name);
+        }
+    }
+
+    fn print_scope_symbols(&self, scope: &ScopeNode, scope_name: &str) {
+        let symbols = scope.symbols.borrow();
+        if !symbols.is_empty() {
+            println!("{} Scope (Level {}):", scope_name, scope.scope_level);
+            for (name, symbol) in symbols.iter() {
+                match &symbol.kind {
+                    SymbolKind::Variable { type_spec, .. } => {
+                        println!("  Variable: {} : {:?}", name, type_spec);
+                    }
+                    SymbolKind::Function {
+                        return_type,
+                        parameters,
+                        is_defined,
+                    } => {
+                        let param_types: Vec<String> =
+                            parameters.iter().map(|p| p.param_type.clone()).collect();
+                        println!(
+                            "  Function: {} : ({}) -> {} (defined: {})",
+                            name,
+                            param_types.join(", "),
+                            return_type,
+                            is_defined
+                        );
+                    }
+                    SymbolKind::Parameter { param_type } => {
+                        println!("  Parameter: {} : {}", name, param_type);
+                    }
+                }
+            }
+            println!();
+        }
+    }
 
 
 
