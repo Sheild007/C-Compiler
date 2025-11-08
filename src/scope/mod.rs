@@ -271,7 +271,21 @@ impl ScopeAnalyzer{
         self.exit_scope();
     
     }
-
+    fn analyze_initializer(&mut self, initializer: &Initializer) {
+        match &initializer.kind {
+            InitializerKind::Assignment(expr) => {
+                self.analyze_expression(expr);
+            }
+            InitializerKind::List(initializers) => {
+                for init in initializers {
+                    self.analyze_initializer(init);
+                }
+            }
+            InitializerKind::Designated(_designator, init) => {
+                self.analyze_initializer(init);
+            }
+        }
+    }
 
 
 
