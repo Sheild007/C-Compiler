@@ -27,12 +27,11 @@ pub enum SymbolKind {
     },
 }
 
-#[derive(Debug,Clone)]
-pub struct symbol{
-
+#[derive(Debug, Clone)]
+pub struct Symbol {
     pub name: String,
     pub kind: SymbolKind,
-    pub scope_level:usize,
+    pub scope_level: usize,
 }
 
 #[derive(Debug)]
@@ -58,29 +57,22 @@ impl ScopeNode{
         
     }
 
-    pub fn lookup(&self, name, &str) -> Option<Symbol>{
-
-        if let Some(symbol) = self.symbols.borrow().get(name){
-
-            Some(symbol.cloen())
-
-        }
-        else if let Some(parrent)= &self.parent{
-
+    pub fn lookup(&self, name: &str) -> Option<Symbol> {
+        if let Some(symbol) = self.symbols.borrow().get(name) {
+            Some(symbol.clone())
+        } else if let Some(parent) = &self.parent {
             parent.lookup(name)
-        }
-        else 
-        {
+        } else {
             None
         }
     }
 
-    pub fn lookup_current_scope(&self, name:String , symbol: Symbol){
+    pub fn lookup_current_scope(&self, name: &str) -> Option<Symbol> {
         self.symbols.borrow().get(name).cloned()
     }
 
-    pub fn insert_symbol(&self, name:String , symbol:Symbol){
-        self.symbols.borrow_mut().insert(name,symbol)
+    pub fn insert_symbol(&self, name: String, symbol: Symbol) {
+        self.symbols.borrow_mut().insert(name, symbol);
     }
 }
 
@@ -98,23 +90,23 @@ pub struct ScopeAnalyzer{
 
 impl ScopeAnalyzer{
 
-    pub fn new () -> Self{
-        let global_scope = Rc :: new(ScopeNode:: new(None));
-        let mut all_scopes = Vec :: new();
-        all_scopes.push(global).clone());
+    pub fn new() -> Self {
+        let global_scope = Rc::new(ScopeNode::new(None));
+        let mut all_scopes = Vec::new();
+        all_scopes.push(global_scope.clone());
 
-        ScopeAnalyzer{
-            Current_scope: global_scope(),
+        ScopeAnalyzer {
+            current_scope: global_scope.clone(),
             global_scope,
             errors: Vec::new(),
             all_scopes,
         }
     }
 
-    pub fn enter_scope(&mut self){
-        let new_scope=Rc::new(ScopeNode::new(Sone(Self.current_scope.clone())));
-        self.all_scopes.push(new_scope.Clone());
-        self.current_scope=new_scope;
+    pub fn enter_scope(&mut self) {
+        let new_scope = Rc::new(ScopeNode::new(Some(self.current_scope.clone())));
+        self.all_scopes.push(new_scope.clone());
+        self.current_scope = new_scope;
     }
 
     pub fn exit_scope(&mut self){
@@ -146,76 +138,116 @@ impl ScopeAnalyzer{
 
     }
 
-    pub fn lookup_symbol(&self,name:&str) -> Option<Symbol>{
-        self.current_scope.lookup(name);
+    pub fn lookup_symbol(&self, name: &str) -> Option<Symbol> {
+        self.current_scope.lookup(name)
     }
 
     //verify whether a variable name is declared in any visible scope before it is used.
-    pub fn check_variable_access(&mut self, name:&str)-> Result<(),ScopeError>{
-        match self.lookup_symbol(name){
-            Some(_symbol)==>Ok(()),
-            None=>{
-                let error= ScopeError:: UndeclaredVariable(name.to_string());
-                self.errors.push(error.clone);
+    pub fn check_variable_access(&mut self, name: &str) -> Result<(), ScopeError> {
+        match self.lookup_symbol(name) {
+            Some(_symbol) => Ok(()),
+            None => {
+                let error = ScopeError::UndeclaredVariable(name.to_string());
+                self.errors.push(error.clone());
                 Err(error)
             }
         }
     }
 
     //verify whether a Function is declared in any visible scope before it is used.
-    pub fn check_function_call(&mut self, name:&str)->Result<(), ScopeError>{
-        match self.lookup_symbol(name){
-            Some(symbol)=> match &symbol.kind{
-                SymbolKind::Function{..}=>Ok(()),
-                _ =>{
-                    let error=ScopeError::UndefinedFunctionCalled(name.to_string);
-                    self.errors.push(error);
+    pub fn check_function_call(&mut self, name: &str) -> Result<(), ScopeError> {
+        match self.lookup_symbol(name) {
+            Some(symbol) => match &symbol.kind {
+                SymbolKind::Function { .. } => Ok(()),
+                _ => {
+                    let error = ScopeError::UndefinedFunctionCalled(name.to_string());
+                    self.errors.push(error.clone());
                     Err(error)
                 }
-            } ,
-            None =>{
-                    let error=ScopeError::UndefinedFunctionCalled(name.to_string);
-                    self.errors.push(error);
-                    Err(error)
-
+            },
+            None => {
+                let error = ScopeError::UndefinedFunctionCalled(name.to_string());
+                self.errors.push(error.clone());
+                Err(error)
             }
         }
     }
 
-    pub fn analyze_translation_unit(&mut self, unit:TranslationUnit)->Result<(),Vec<ScopeError>>{
-        for external_decl in &unit.external_declarations{
+    pub fn analyze_translation_unit(&mut self, unit: &TranslationUnit) -> Result<(), Vec<ScopeError>> {
+        // Check if stdio.h is included and add printf as built-in
+        self.add_builtin_functions_from_includes(&unit.preprocessor_list);
+        
+        for external_decl in &unit.external_declarations {
             self.analyze_external_declaration(external_decl);
         }
 
-        if self.errors.is_empty(){
+        if self.errors.is_empty() {
             Ok(())
-        }
-        else{
+        } else {
             Err(self.errors.clone())
         }
     }
 
-    fn analyze_external_declaration(&mut self, decl:ExternalDeclaration){
-        match decl{
-            ExternalDeclaration::Variable(var_decl)=>{
+    fn add_builtin_functions_from_includes(&mut self, preprocessor_list: &[PreprocessorDirective]) {
+        // Check if stdio.h is included
+        let has_stdio = preprocessor_list.iter().any(|directive| {
+            if let PreprocessorDirective::Include(header) = directive {
+                header.contains("stdio.h")
+            } else {
+                false
+            }
+        });
+
+        if has_stdio {
+            // Add printf as a built-in function when stdio.h is included
+            let printf_symbol = SymbolKind::Function {
+                return_type: "int".to_string(),
+                parameters: vec![], // Variadic function - simplified
+                is_defined: true,
+            };
+            let _ = self.declare_symbol("printf".to_string(), printf_symbol);
+        }
+    }
+
+    fn analyze_external_declaration(&mut self, decl: &ExternalDeclaration) {
+        match decl {
+            ExternalDeclaration::Variable(var_decl) => {
                 self.analyze_variable_declaration(var_decl);
             }
-            ExternalDeclaration::Fucntion(func_def)=>{
+            ExternalDeclaration::Function(func_def) => {
                 self.analyze_function_definition(func_def);
             }
-            ExternalDeclaration::FunctionDeclaration(func_decl)=>{
+            ExternalDeclaration::FunctionDeclaration(func_decl) => {
                 self.analyze_function_declaration(func_decl);
             }
         }
     }
-    fn analyze_variable_declaration(&mut self, var_decl:&VariableDeclaration){
-        let symbol_kind= SymbolKind::Variable{
+    fn analyze_variable_declaration(&mut self, var_decl: &VariableDeclaration) {
+        let symbol_kind = SymbolKind::Variable {
             type_spec: var_decl.type_specifier.clone(),
-            storage_class:var_decl.storage_class.clone(),
+            storage_class: var_decl.storage_class.clone(),
+        };
+        if let Err(_) = self.declare_symbol(var_decl.declarator.name.clone(), symbol_kind) {
+            // Error already recorded
         }
-        if let Err(_)=self.declare_symbol(var_decl.declarator.name.clone()),{}
-        if let Some(initializer)=&var_decl.initializer{
-            self.analyze_initializer(initializer);
+        if let Some(initializer) = &var_decl.initializer {
+            match &initializer.kind {
+                InitializerKind::Assignment(expr) => {
+                    self.analyze_expression(expr);
+                }
+                InitializerKind::List(initializers) => {
+                    for init in initializers {
+                        if let InitializerKind::Assignment(expr) = &init.kind {
+                            self.analyze_expression(expr);
+                        }
+                    }
+                }
+                InitializerKind::Designated(_designator, init) => {
+                    if let InitializerKind::Assignment(expr) = &init.kind {
+                        self.analyze_expression(expr);
+                    }
+                }
+            }
         }
     } 
     fn analyze_function_declaration(&mut self, func_decl: &FunctionDeclaration) {
@@ -271,21 +303,6 @@ impl ScopeAnalyzer{
         self.exit_scope();
     
     }
-    fn analyze_initializer(&mut self, initializer: &Initializer) {
-        match &initializer.kind {
-            InitializerKind::Assignment(expr) => {
-                self.analyze_expression(expr);
-            }
-            InitializerKind::List(initializers) => {
-                for init in initializers {
-                    self.analyze_initializer(init);
-                }
-            }
-            InitializerKind::Designated(_designator, init) => {
-                self.analyze_initializer(init);
-            }
-        }
-    }
     fn analyze_expression(&mut self, expr: &Expression) {
         match expr {
             Expression::Identifier(name) => {
@@ -330,7 +347,9 @@ impl ScopeAnalyzer{
             Expression::PostfixOp(expr, _op) => {
                 self.analyze_expression(expr);
             }
-        
+            Expression::Cast(_type, expr) => {
+                self.analyze_expression(expr);
+            }
             Expression::Constant(_) | Expression::StringLiteral(_) => {
                 // No scope analysis needed for literals
             }
