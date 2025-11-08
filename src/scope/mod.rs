@@ -1,16 +1,169 @@
 use crate::parser::ast::*;
+use std::cell::RefCell;
 use std::collections::HashMap;
-use std::rc::RC;
+use std::rc::Rc;
 
-
-#[derive(Debug,Clone)]
-pub enum ScopeError{
-
+#[derive(Debug, Clone)]
+pub enum ScopeError {
     UndeclaredVariable(String),
     UndefinedFunctionCalled(String),
     VariableRedefinition(String),
     FunctionPrototypeRedefinition(String),
+}
 
+#[derive(Debug, Clone)]
+pub enum SymbolKind {
+    Variable {
+        type_spec: TypeSpecifier,
+        storage_class: Option<StorageClass>,
+    },
+    Function {
+        return_type: String,
+        parameters: Vec<Parameter>,
+        is_defined: bool,
+    },
+    Parameter {
+        param_type: String,
+    },
+}
+
+#[derive(Debug,Clone)]
+pub struct symbol{
+
+    pub name: String,
+    pub kind: SymbolKind,
+    pub scope_level:usize,
+}
+
+#[derive(Debug)]
+pub struct ScopeNode{
+
+    pub symbols: RefCell<HashMap<String,Symbol>>,
+    pub parent: Option<Rc<ScopeNode>>,
+    pub scope_level: usize
+}
+
+impl ScopeNode{
+
+    pub fn new(parent: Option<Rc<ScopeNode>>) -> Self{
+
+        let scope_level =parent.as_ref().map(|p| p.scope_level +1).unwrap_or(0);
+        ScopeNode{
+
+            symbols: RefCell:: new (HashMap::new()),
+            parent,
+            scope_level,
+        }
+
+        
+    }
+
+    pub fn lookup(&self, name, &str) -> Option<Symbol>{
+
+        if let Some(symbol) = self.symbols.borrow().get(name){
+
+            Some(symbol.cloen())
+
+        }
+        else if let Some(parrent)= &self.parent{
+
+            parent.lookup(name)
+        }
+        else 
+        {
+            None
+        }
+    }
+
+    pub fn lookup_current_scope(&self, name:String , symbol: Symbol){
+        self.symbols.borrow().get(name).cloned()
+    }
+
+    pub fn insert_symbol(&self, name:String , symbol:Symbol){
+        self.symbols.borrow_mut().insert(name,symbol)
+    }
 }
 
 
+pub struct ScopeAnalyzer{
+
+    current_scope: Rc<ScopeNode>,
+    global_scope : Rc<ScopeNode>,
+    errors: Vec<ScopeError>,
+    all_scopes: Vec<Rc<ScopeNode>>,
+}
+
+
+
+
+impl ScopeAnalyzer{
+
+    pub fn new () -> Self{
+
+        let global_scope = Rc :: new(ScopeNode:: new(None));
+        let mut all_scopes = Vec :: new();
+        all_scopes.push(global).clone());
+
+        ScopeAnalyzer{
+            Current_scope: global_scope(),
+            global_scope,
+            errors: Vec::new(),
+            all_scopes,
+        }
+    }
+
+    pub fn enter_scope(&mut self){
+        let new_scope=Rc::new(ScopeNode::new(Sone(Self.current_scope.clone())));
+        self.all_scopes.push(new_scope.Clone());
+        self.current_scope=new_scope;
+    }
+
+    pub fn exit_scope(&mut self){
+
+        if let Some(parent)= &self.current_scope.parent{
+            self.current_scope=parent.clone();
+        }
+    }
+
+    pub fn declare_symbol(&mut selfm name:String, kind: SymbolKind)->Result(),ScopeError{
+
+        //check for redefination in current scope_level
+        if self.current_scope.lookup_current_scope(&name).is_some(){
+            let error = match kind{
+                SymbolKind:: Fucntion{..}=> ScopeError::FunctionPrototypeRedefinition(name),
+                _=> ScopeError::VariableRedefinition(name),
+            };
+            self.errors.push(error.clone());
+            return Err(error);
+            }
+
+
+        }
+        let symbol=Symbol{
+            name:name.clone(),
+            kind,
+            scope_level:self.current_scope.scope_level,
+        };
+
+        self.current_scope.insert_symbol(name,symbol);
+        Ok(())
+
+    }
+
+    pub fn lookup_symbol(&self,name:&str) -> Option<Symbol>{
+        self.current_scope.lookup(name);
+    }
+    
+    pub fn check_variable_access(&mut self, name:&str)-> Result<(),ScopeError>{
+        match self.lookup_symbol(name){
+            Some(_symbol)==>Ok(()),
+            None=>{
+                let error= ScopeError:: UndeclaredVariable(name.to_string());
+                self.errors.push(error.clone);
+                Err(error)
+            }
+        }
+    }
+
+    
+}
