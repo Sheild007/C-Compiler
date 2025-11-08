@@ -1,20 +1,23 @@
-mod lexer_regex;
 mod lexer_manual;
-mod rules;
+mod lexer_regex;
 mod parser;
+mod rules;
+mod scope;
 
 use regex::Regex;
-use std::fs;
-use std::env;
-use std::io::Write;
 use rules::{RULES, Token};
+use std::env;
+use std::fs;
+use std::io::Write;
 
 // Rules-based lexer using rules.rs
 fn lex(mut input: &str) -> Vec<Token> {
     let mut tokens = Vec::new();
     while !input.is_empty() {
         input = input.trim_start();
-        if input.is_empty() { break; }
+        if input.is_empty() {
+            break;
+        }
         let mut matched = false;
         for rule in RULES.iter() {
             if let Some(m) = rule.regex.find(input) {
@@ -33,7 +36,10 @@ fn lex(mut input: &str) -> Vec<Token> {
             }
         }
         if !matched {
-            tokens.push(Token::Error(format!("Unexpected character: {}", &input[..1])));
+            tokens.push(Token::Error(format!(
+                "Unexpected character: {}",
+                &input[..1]
+            )));
             input = &input[1..];
         }
     }
@@ -227,13 +233,42 @@ fn main() {
     println!("\n--- Parsing AST ---");
     println!("Number of tokens: {}", tokens_regex.len());
     let mut parser = parser::Parser::new(tokens_regex);
-    match parser.parse_translation_unit() {
+    match parser.parse() {
         Ok(ast) => {
             println!("AST: {:#?}", ast);
+
+            // Perform scope analysis
+            println!("\n--- Scope Analysis ---");
+            let mut scope_analyzer = scope::ScopeAnalyzer::new();
+            match scope_analyzer.analyze_translation_unit(&ast) {
+                Ok(()) => {
+                    println!("Scope analysis completed successfully - no errors found!");
+                    scope_analyzer.print_symbol_table();
+                }
+                Err(errors) => {
+                    println!("Scope analysis found {} error(s):", errors.len());
+                    for error in errors {
+                        match error {
+                            scope::ScopeError::UndeclaredVariable(name) => {
+                                println!("  ERROR: Undeclared variable '{}' accessed", name);
+                            }
+                            scope::ScopeError::UndefinedFunctionCalled(name) => {
+                                println!("  ERROR: Undefined function '{}' called", name);
+                            }
+                            scope::ScopeError::VariableRedefinition(name) => {
+                                println!("  ERROR: Variable '{}' redefined in same scope", name);
+                            }
+                            scope::ScopeError::FunctionPrototypeRedefinition(name) => {
+                                println!("  ERROR: Function '{}' redefined", name);
+                            }
+                        }
+                    }
+                    scope_analyzer.print_symbol_table();
+                }
+            }
         }
         Err(error) => {
             println!("Parse Error: {:?}", error);
         }
     }
 }
-
