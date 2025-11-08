@@ -31,20 +31,11 @@ pub enum Constant {
 
 #[derive(Debug, Clone)]
 pub enum ExternalDeclaration {
-    Printf(PrintfStatement),                  // printf(...);
-    Struct(StructDeclaration),                // struct ...;
-    Union(UnionDeclaration),                  // union ...;
-    Enum(EnumDeclaration),                    // enum ...;
-    Typedef(TypedefDeclaration),              // typedef ...;
     Variable(VariableDeclaration),            // int x = 5;
     Function(FunctionDefinition),             // int function_name(...) { ... }
     FunctionDeclaration(FunctionDeclaration), // int func(int x);
 }
 
-#[derive(Debug, Clone)]
-pub struct PrintfStatement {
-    pub args: Vec<PrintfArg>, // printf_args
-}
 
 #[derive(Debug, Clone)]
 pub struct FunctionDefinition {
@@ -75,31 +66,10 @@ pub enum Statement {
         Option<Expression>,
         Box<Statement>,
     ), // for (init; cond; update) stmt
-    DoWhile(Box<Statement>, Expression),                    // do stmt while (cond);
-    Switch(Expression, Vec<Case>),                          // switch (expr) { cases }
     Break,                                                  // break;
-    Continue,                                               // continue;
-    Goto(String),                                           // goto label;
-    Label(String, Box<Statement>),                          // label: stmt
 }
 
-#[derive(Debug, Clone)]
-pub enum Case {
-    Case(Expression, Vec<Statement>), // case expr: stmts
-    Default(Vec<Statement>),          // default: stmts
-}
 
-#[derive(Debug, Clone)]
-pub enum PrintfArg {
-    StringLiteral(String),  // StringLiteral in printf_args
-    Expression(Expression), // expression in printf_args
-}
-
-#[derive(Debug, Clone)]
-pub struct StructDeclaration {
-    pub specifiers: Vec<SpecifierQualifier>, // specifier_qualifier_list
-    pub declarators: Vec<StructDeclarator>,  // struct_declarator_list
-}
 
 #[derive(Debug, Clone)]
 pub enum SpecifierQualifier {
@@ -118,23 +88,12 @@ pub enum TypeSpecifier {
     Signed,
     Unsigned,
     Void,
-    Struct(String),
-    Union(String),
-    Enum(String),
-    Typedef(String),
 }
 
 #[derive(Debug, Clone)]
 pub enum TypeQualifier {
     Const,
-    Volatile,
     // Add more as needed based on grammar expansion
-}
-
-#[derive(Debug, Clone)]
-pub struct StructDeclarator {
-    pub declarator: Option<Declarator>, // declarator or None for bitfield-only
-    pub bitfield: Option<Expression>,   // constant_expression for bitfield
 }
 
 #[derive(Debug, Clone)]
@@ -259,29 +218,6 @@ pub struct VariableDeclaration {
     pub initializer: Option<Initializer>,
 }
 
-#[derive(Debug, Clone)]
-pub struct UnionDeclaration {
-    pub name: Option<String>,
-    pub members: Vec<StructMember>,
-}
-
-#[derive(Debug, Clone)]
-pub struct EnumDeclaration {
-    pub name: Option<String>,
-    pub enumerators: Vec<Enumerator>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Enumerator {
-    pub name: String,
-    pub value: Option<Expression>,
-}
-
-#[derive(Debug, Clone)]
-pub struct TypedefDeclaration {
-    pub type_specifier: TypeSpecifier,
-    pub declarator: Declarator,
-}
 
 #[derive(Debug, Clone)]
 pub struct FunctionDeclaration {
@@ -290,11 +226,6 @@ pub struct FunctionDeclaration {
     pub parameters: Vec<Parameter>,
 }
 
-#[derive(Debug, Clone)]
-pub struct StructMember {
-    pub specifiers: Vec<SpecifierQualifier>,
-    pub declarators: Vec<StructDeclarator>,
-}
 
 #[derive(Debug, Clone)]
 pub enum StorageClass {
