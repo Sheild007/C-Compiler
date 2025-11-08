@@ -118,7 +118,6 @@ pub enum Expression {
     MemberAccess(Box<Expression>, String),                          // Member access: obj.member
     PointerAccess(Box<Expression>, String),                         // Pointer access: ptr->member
     PostfixOp(Box<Expression>, PostfixOperator), // Postfix operations: expr++, expr--
-    SizeOf(SizeOfType),                          // sizeof(type) or sizeof(expr)
     Cast(TypeSpecifier, Box<Expression>),        // (type)expr
 }
 
@@ -240,12 +239,6 @@ pub enum StorageClass {
 pub enum Designator {
     Member(String),    // .field
     Array(Expression), // [index]
-}
-
-#[derive(Debug, Clone)]
-pub enum SizeOfType {
-    Type(TypeSpecifier),
-    Expression(Box<Expression>),
 }
 
 #[derive(Debug, Clone)]
