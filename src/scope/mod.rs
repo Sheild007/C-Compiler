@@ -286,6 +286,56 @@ impl ScopeAnalyzer{
             }
         }
     }
+     fn analyze_expression(&mut self, expr: &Expression) {
+        match expr {
+            Expression::Identifier(name) => {
+                if let Err(_) = self.check_variable_access(name) {
+                    // Error already recorded
+                }
+            }
+            Expression::FunctionCall(name, args) => {
+                if let Err(_) = self.check_function_call(name) {
+                    // Error already recorded
+                }
+                for arg in args {
+                    self.analyze_expression(arg);
+                }
+            }
+            Expression::BinaryOp(left, _op, right) => {
+                self.analyze_expression(left);
+                self.analyze_expression(right);
+            }
+            Expression::UnaryOp(_op, expr) => {
+                self.analyze_expression(expr);
+            }
+            Expression::Assignment(left, _op, right) => {
+                self.analyze_expression(left);
+                self.analyze_expression(right);
+            }
+            Expression::Conditional(condition, true_expr, false_expr) => {
+                self.analyze_expression(condition);
+                self.analyze_expression(true_expr);
+                self.analyze_expression(false_expr);
+            }
+            Expression::ArrayAccess(array, index) => {
+                self.analyze_expression(array);
+                self.analyze_expression(index);
+            }
+            Expression::MemberAccess(obj, _member) => {
+                self.analyze_expression(obj);
+            }
+            Expression::PointerAccess(ptr, _member) => {
+                self.analyze_expression(ptr);
+            }
+            Expression::PostfixOp(expr, _op) => {
+                self.analyze_expression(expr);
+            }
+        
+            Expression::Constant(_) | Expression::StringLiteral(_) => {
+                // No scope analysis needed for literals
+            }
+        }
+    }
 
 
 
