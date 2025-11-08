@@ -1,11 +1,13 @@
-// mod.rs: Implements the parser logic and entry points for MiniC source code.
+// parser_new.rs: A clean, robust parser implementation for MiniC
+
 pub mod ast;
+
 use crate::lexer_regex::Token;
-use ast::*;
+use crate::parser::ast::*;
 
 pub struct Parser {
-    pub tokens: Vec<Token>,
-    pub pos: usize,
+    tokens: Vec<Token>,
+    pos: usize,
 }
 
 impl Parser {
@@ -13,73 +15,113 @@ impl Parser {
         Parser { tokens, pos: 0 }
     }
 
-    pub fn parse_translation_unit(&mut self) -> Result<TranslationUnit, ParseError> {
+    // ============================================
+    // Helper Methods
+    // ============================================
+
+    /// Skip whitespace-like tokens (comments, errors)
+    fn skip_whitespace(&mut self) {
+        while self.pos < self.tokens.len() {
+            match &self.tokens[self.pos] {
+                Token::Comment(_) | Token::BlockComment(_) | Token::Error(_) => {
+                    self.pos += 1;
+                }
+                _ => break,
+            }
+        }
+    }
+
+    /// Peek at the current token without advancing
+    fn peek(&self) -> Option<&Token> {
+        if self.pos < self.tokens.len() {
+            Some(&self.tokens[self.pos])
+        } else {
+            None
+        }
+    }
+
+    /// Peek at token at offset from current position
+    fn peek_at(&self, offset: usize) -> Option<&Token> {
+        if self.pos + offset < self.tokens.len() {
+            Some(&self.tokens[self.pos + offset])
+        } else {
+            None
+        }
+    }
+
+    /// Consume current token if it matches
+    fn consume(&mut self, expected: &Token) -> bool {
+        if self.peek() == Some(expected) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    /// Consume token and return it
+    fn next(&mut self) -> Option<Token> {
+        if self.pos < self.tokens.len() {
+            let token = self.tokens[self.pos].clone();
+            self.pos += 1;
+            Some(token)
+        } else {
+            None
+        }
+    }
+
+    /// Check if we're at top level (no unmatched braces)
+    fn is_at_top_level(&self) -> bool {
+        let mut brace_count = 0;
+        for i in 0..self.pos {
+            match &self.tokens[i] {
+                Token::BraceL => brace_count += 1,
+                Token::BraceR => brace_count -= 1,
+                _ => {}
+            }
+        }
+        brace_count == 0
+    }
+
+    // ============================================
+    // Main Entry Point
+    // ============================================
+
+    pub fn parse(&mut self) -> Result<TranslationUnit, ParseError> {
         let mut preprocessor_list = Vec::new();
         let mut external_declarations = Vec::new();
 
         while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Comment(_comment) => {
-                    // Comments are skipped in AST as per grammar
-                    self.pos += 1;
-                }
-                Token::Preprocessor(directive_type) => {
-                    let directive_type = directive_type
-                        .strip_prefix('#')
-                        .unwrap_or(directive_type)
-                        .to_string();
-                    match self.parse_preprocessor_directive(&directive_type) {
-                        Ok(directive) => preprocessor_list.push(directive),
-                        Err(e) => return Err(e),
+            self.skip_whitespace();
+
+            if self.pos >= self.tokens.len() {
+                break;
+            }
+
+            match self.peek() {
+                Some(Token::Preprocessor(_)) => {
+                    if let Ok(directive) = self.parse_preprocessor_directive() {
+                        preprocessor_list.push(directive);
                     }
                 }
-                Token::Error(error_msg) => {
-                    // Return parse error for lexer errors
-                    return Err(ParseError::UnexpectedToken(format!(
-                        "Lexer error: {}",
-                        error_msg
-                    )));
+                Some(Token::Error(msg)) => {
+                    return Err(ParseError::UnexpectedToken(format!("Lexer error: {}", msg)));
                 }
                 _ => {
-                    if let Some(decl) = self.parse_external_declaration() {
-                        external_declarations.push(decl);
-                    } else {
-                        // Check for specific error patterns when parsing fails
-                        if let Err(e) = self.check_for_specific_errors() {
-                            return Err(e);
-                        }
-
-                        // Check if this is a parse error (missing expression, etc.)
-                        // Commented out to prevent false positives on valid C code
-                        /*
-                        if self.pos < self.tokens.len() {
-                            match &self.tokens[self.pos] {
-                                Token::AssignOp => {
-                                    // Missing expression after assignment operator
-                                    return Err(ParseError::ExpectedExpr);
-                                }
-                                Token::Semicolon => {
-                                    // Unexpected semicolon - might be missing expression
-                                    return Err(ParseError::UnexpectedToken("Semicolon".to_string()));
-                                }
-                                _ => {
-                                    // Skip unrecognized token and continue parsing
-                                    self.pos += 1;
-                                }
+                    if self.is_at_top_level() {
+                        if let Some(decl) = self.parse_external_declaration() {
+                            external_declarations.push(decl);
+                        } else {
+                            // Check for specific errors
+                            if let Err(e) = self.check_for_specific_errors() {
+                                return Err(e);
                             }
-                        } else {
-                            // End of tokens - check for UnexpectedEOF
-                            return Err(ParseError::UnexpectedEOF);
-                        }
-                        */
-
-                        // Skip unrecognized token and continue parsing
-                        if self.pos < self.tokens.len() {
+                            // Skip unrecognized token
                             self.pos += 1;
-                        } else {
-                            // End of tokens
-                            break;
                         }
+                    } else {
+                        // Inside a function body - skip until we're back at top level
+                        self.skip_to_top_level();
                     }
                 }
             }
@@ -91,327 +133,114 @@ impl Parser {
         })
     }
 
-    fn check_for_specific_errors(&mut self) -> Result<(), ParseError> {
-        if self.pos >= self.tokens.len() {
-            return Ok(());
-        }
-
-        // Check for ExpectedIdentifier: int = 5; (missing identifier after type)
-        if self.pos + 2 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-            ) {
-                (
-                    Token::Int
-                    | Token::Float
-                    | Token::Char
-                    | Token::Double
-                    | Token::Long
-                    | Token::Short
-                    | Token::Void,
-                    Token::AssignOp,
-                    Token::IntLit(_) | Token::FloatLit(_) | Token::StringLit(_) | Token::BoolLit(_),
-                ) => {
-                    return Err(ParseError::ExpectedIdentifier);
-                }
-                _ => {}
-            }
-        }
-
-        // Check for ExpectedTypeToken: x = 5; (missing type specifier)
-        // Only trigger this if we're at the start of a statement and there's no preceding type
-        if self.pos + 1 < self.tokens.len() {
-            match (&self.tokens[self.pos], &self.tokens[self.pos + 1]) {
-                (Token::Identifier(_), Token::AssignOp) => {
-                    // Check if this is at the start of a statement (after semicolon, brace, etc.)
-                    let is_start_of_statement = if self.pos > 0 {
-                        matches!(
-                            &self.tokens[self.pos - 1],
-                            Token::Semicolon | Token::BraceL | Token::BraceR
-                        )
-                    } else {
-                        true
-                    };
-
-                    if is_start_of_statement {
-                        return Err(ParseError::ExpectedTypeToken);
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Check for ExpectedFloatLit: float f = ;
-        if self.pos + 3 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-                &self.tokens[self.pos + 3],
-            ) {
-                (Token::Float, Token::Identifier(_), Token::AssignOp, Token::Semicolon) => {
-                    return Err(ParseError::ExpectedFloatLit);
-                }
-                _ => {}
-            }
-        }
-
-        // Check for ExpectedIntLit: int i = ;
-        if self.pos + 3 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-                &self.tokens[self.pos + 3],
-            ) {
-                (Token::Int, Token::Identifier(_), Token::AssignOp, Token::Semicolon) => {
-                    return Err(ParseError::ExpectedIntLit);
-                }
-                _ => {}
-            }
-        }
-
-        // Check for ExpectedStringLit: char* str = ;
-        if self.pos + 4 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-                &self.tokens[self.pos + 3],
-                &self.tokens[self.pos + 4],
-            ) {
-                (
-                    Token::Char,
-                    Token::Mult,
-                    Token::Identifier(_),
-                    Token::AssignOp,
-                    Token::Semicolon,
-                ) => {
-                    return Err(ParseError::ExpectedStringLit);
-                }
-                _ => {}
-            }
-        }
-
-        // Check for ExpectedBoolLit: bool flag = ;
-        if self.pos + 3 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-                &self.tokens[self.pos + 3],
-            ) {
-                (Token::Bool, Token::Identifier(_), Token::AssignOp, Token::Semicolon) => {
-                    return Err(ParseError::ExpectedBoolLit);
-                }
-                _ => {}
-            }
-        }
-
-        // Check for FailedToFindToken: int x = 5 + ;
-        if self.pos + 4 < self.tokens.len() {
-            match (
-                &self.tokens[self.pos],
-                &self.tokens[self.pos + 1],
-                &self.tokens[self.pos + 2],
-                &self.tokens[self.pos + 3],
-                &self.tokens[self.pos + 4],
-            ) {
-                (
-                    Token::Int,
-                    Token::Identifier(_),
-                    Token::AssignOp,
-                    Token::IntLit(_),
-                    Token::Plus | Token::Minus | Token::Mult | Token::Div,
-                ) => {
-                    if self.pos + 5 < self.tokens.len()
-                        && self.tokens[self.pos + 5] == Token::Semicolon
-                    {
-                        return Err(ParseError::FailedToFindToken(
-                            "Missing operand after operator".to_string(),
-                        ));
-                    }
-                }
-                _ => {}
-            }
-        }
-
-        // Check for UnexpectedEOF: incomplete function (missing closing brace)
-        if let Err(e) = self.check_for_incomplete_functions() {
-            return Err(e);
-        }
-
-        Ok(())
-    }
-
-    fn check_for_incomplete_functions(&mut self) -> Result<(), ParseError> {
-        // Look for function definitions that don't have closing braces
+    /// Skip tokens until we're back at top level
+    fn skip_to_top_level(&mut self) {
         let mut brace_count = 0;
-        let mut in_function = false;
-        let mut start_pos = self.pos;
-
-        while self.pos < self.tokens.len() {
+        for i in 0..self.pos {
+            match &self.tokens[i] {
+                Token::BraceL => brace_count += 1,
+                Token::BraceR => brace_count -= 1,
+                _ => {}
+            }
+        }
+        while self.pos < self.tokens.len() && brace_count > 0 {
             match &self.tokens[self.pos] {
-                Token::BraceL => {
-                    brace_count += 1;
-                    in_function = true;
-                }
-                Token::BraceR => {
-                    brace_count -= 1;
-                    if brace_count == 0 {
-                        in_function = false;
-                    }
-                }
-                Token::Int
-                | Token::Void
-                | Token::Char
-                | Token::Float
-                | Token::Double
-                | Token::Long
-                | Token::Short => {
-                    if self.pos + 1 < self.tokens.len() {
-                        match &self.tokens[self.pos + 1] {
-                            Token::Identifier(_) => {
-                                // This looks like a function definition
-                                start_pos = self.pos;
-                            }
-                            _ => {}
-                        }
-                    }
-                }
+                Token::BraceL => brace_count += 1,
+                Token::BraceR => brace_count -= 1,
                 _ => {}
             }
             self.pos += 1;
         }
-
-        // If we're still in a function when we reach the end, it's incomplete
-        if in_function && brace_count > 0 {
-            return Err(ParseError::UnexpectedEOF);
-        }
-
-        // Reset position
-        self.pos = start_pos;
-        Ok(())
     }
 
-    fn parse_preprocessor_directive(
-        &mut self,
-        directive_type: &str,
-    ) -> Result<PreprocessorDirective, ParseError> {
-        self.pos += 1; // Skip the preprocessor token
-        match directive_type {
-            "include" => {
-                if self.pos < self.tokens.len() {
-                    match &self.tokens[self.pos] {
-                        Token::StringLit(s) => {
-                            self.pos += 1;
-                            Ok(PreprocessorDirective::Include(s.clone()))
-                        }
-                        Token::LessOp => {
-                            // Handle #include <header.h>
-                            self.pos += 1; // Skip <
-                            let mut header = String::new();
-                            while self.pos < self.tokens.len()
-                                && self.tokens[self.pos] != Token::GreaterOp
-                            {
-                                match &self.tokens[self.pos] {
-                                    Token::Identifier(id) => {
-                                        header.push_str(id);
-                                        self.pos += 1;
-                                    }
-                                    Token::Dot => {
-                                        header.push('.');
-                                        self.pos += 1;
-                                    }
-                                    _ => {
-                                        self.pos += 1;
-                                    }
-                                }
-                            }
-                            if self.pos < self.tokens.len()
-                                && self.tokens[self.pos] == Token::GreaterOp
-                            {
-                                self.pos += 1; // Skip >
-                            }
-                            Ok(PreprocessorDirective::Include(header))
-                        }
-                        _ => Err(ParseError::UnexpectedToken(format!(
-                            "{:?}",
-                            self.tokens[self.pos]
-                        ))),
-                    }
-                } else {
-                    Err(ParseError::UnexpectedEOF)
+    // ============================================
+    // Preprocessor Directives
+    // ============================================
+
+    fn parse_preprocessor_directive(&mut self) -> Result<PreprocessorDirective, ParseError> {
+        match self.next() {
+            Some(Token::Preprocessor(directive)) => {
+                let directive_type = directive.strip_prefix('#').unwrap_or(&directive).to_string();
+                match directive_type.as_str() {
+                    "include" => self.parse_include(),
+                    "define" => self.parse_define(),
+                    "ifdef" => self.parse_ifdef(),
+                    "ifndef" => self.parse_ifndef(),
+                    "endif" => Ok(PreprocessorDirective::Endif),
+                    _ => Err(ParseError::UnexpectedToken(format!("Unknown directive: {}", directive_type))),
                 }
             }
-            "define" => {
-                if self.pos < self.tokens.len() {
-                    match &self.tokens[self.pos] {
-                        Token::Identifier(id) => {
-                            let ident = id.clone();
-                            self.pos += 1;
-                            let replacement_list = self.parse_replacement_list();
-                            Ok(PreprocessorDirective::Define(ident, replacement_list))
-                        }
-                        _ => Err(ParseError::ExpectedIdentifier),
-                    }
-                } else {
-                    Err(ParseError::UnexpectedEOF)
+            _ => Err(ParseError::UnexpectedEOF),
+        }
+    }
+
+    fn parse_include(&mut self) -> Result<PreprocessorDirective, ParseError> {
+        if let Some(Token::StringLit(s)) = self.peek() {
+            let s = s.clone();
+            self.pos += 1;
+            return Ok(PreprocessorDirective::Include(s));
+        }
+        if self.consume(&Token::LessOp) {
+            let mut header = String::new();
+            while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::GreaterOp {
+                match &self.tokens[self.pos] {
+                    Token::Identifier(id) => header.push_str(id),
+                    Token::Dot => header.push('.'),
+                    _ => {}
                 }
+                self.pos += 1;
             }
-            "ifdef" => {
-                if self.pos < self.tokens.len() {
-                    match &self.tokens[self.pos] {
-                        Token::Identifier(id) => {
-                            self.pos += 1;
-                            Ok(PreprocessorDirective::Ifdef(id.clone()))
-                        }
-                        _ => Err(ParseError::ExpectedIdentifier),
-                    }
-                } else {
-                    Err(ParseError::UnexpectedEOF)
-                }
+            if self.consume(&Token::GreaterOp) {
+                Ok(PreprocessorDirective::Include(header))
+            } else {
+                Err(ParseError::UnexpectedEOF)
             }
-            "ifndef" => {
-                if self.pos < self.tokens.len() {
-                    match &self.tokens[self.pos] {
-                        Token::Identifier(id) => {
-                            self.pos += 1;
-                            Ok(PreprocessorDirective::Ifndef(id.clone()))
-                        }
-                        _ => Err(ParseError::ExpectedIdentifier),
-                    }
-                } else {
-                    Err(ParseError::UnexpectedEOF)
-                }
+        } else {
+            Err(ParseError::UnexpectedToken("Expected include path".to_string()))
+        }
+    }
+
+    fn parse_define(&mut self) -> Result<PreprocessorDirective, ParseError> {
+        match self.next() {
+            Some(Token::Identifier(id)) => {
+                let replacement_list = self.parse_replacement_list();
+                Ok(PreprocessorDirective::Define(id, replacement_list))
             }
-            "endif" => Ok(PreprocessorDirective::Endif),
-            _ => Err(ParseError::UnexpectedToken(format!(
-                "{:?}",
-                self.tokens[self.pos]
-            ))),
+            _ => Err(ParseError::ExpectedIdentifier),
+        }
+    }
+
+    fn parse_ifdef(&mut self) -> Result<PreprocessorDirective, ParseError> {
+        match self.next() {
+            Some(Token::Identifier(id)) => Ok(PreprocessorDirective::Ifdef(id)),
+            _ => Err(ParseError::ExpectedIdentifier),
+        }
+    }
+
+    fn parse_ifndef(&mut self) -> Result<PreprocessorDirective, ParseError> {
+        match self.next() {
+            Some(Token::Identifier(id)) => Ok(PreprocessorDirective::Ifndef(id)),
+            _ => Err(ParseError::ExpectedIdentifier),
         }
     }
 
     fn parse_replacement_list(&mut self) -> Vec<ReplacementItem> {
         let mut items = Vec::new();
         while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Identifier(id) => {
+            match self.peek() {
+                Some(Token::Identifier(id)) => {
                     items.push(ReplacementItem::Identifier(id.clone()));
                     self.pos += 1;
                 }
-                Token::IntLit(n) => {
+                Some(Token::IntLit(n)) => {
                     items.push(ReplacementItem::Constant(Constant::Integer(*n)));
                     self.pos += 1;
                 }
-                Token::FloatLit(f) => {
+                Some(Token::FloatLit(f)) => {
                     items.push(ReplacementItem::Constant(Constant::Float(*f)));
                     self.pos += 1;
                 }
-                Token::StringLit(s) => {
+                Some(Token::StringLit(s)) => {
                     items.push(ReplacementItem::StringLiteral(s.clone()));
                     self.pos += 1;
                 }
@@ -421,260 +250,143 @@ impl Parser {
         items
     }
 
+    // ============================================
+    // External Declarations
+    // ============================================
+
     fn parse_external_declaration(&mut self) -> Option<ExternalDeclaration> {
-        if self.pos >= self.tokens.len() {
-            return None;
+        self.skip_whitespace();
+        let saved_pos = self.pos;
+
+        // Handle storage class specifiers
+        let storage_class = if self.consume(&Token::Static) {
+            Some(StorageClass::Static)
+        } else {
+            None
+        };
+
+        // Handle type qualifiers
+        let mut type_qualifiers = Vec::new();
+        if self.consume(&Token::Const) {
+            type_qualifiers.push(TypeQualifier::Const);
         }
 
-        // Skip preprocessor directives, comments, and error tokens
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Preprocessor(_)
-                | Token::Comment(_)
-                | Token::BlockComment(_)
-                | Token::Error(_) => {
-                    self.pos += 1;
-                    continue;
+        // Check if this is a function or variable
+        if self.is_type_specifier() {
+            if self.is_function_declaration() {
+                // Try function definition first
+                self.pos = saved_pos;
+                if let Some(func) = self.parse_function_definition() {
+                    return Some(ExternalDeclaration::Function(func));
+                }
+                // Try function declaration
+                self.pos = saved_pos;
+                if let Some(func_decl) = self.parse_function_declaration() {
+                    return Some(ExternalDeclaration::FunctionDeclaration(func_decl));
+                }
+            }
+            // Try variable declaration
+            self.pos = saved_pos;
+            if let Some(mut var_decl) = self.parse_variable_declaration() {
+                if let Some(sc) = storage_class {
+                    var_decl.storage_class = Some(sc);
+                }
+                if !type_qualifiers.is_empty() {
+                    var_decl.type_qualifiers = type_qualifiers;
+                }
+                return Some(ExternalDeclaration::Variable(var_decl));
+            }
+        }
+
+        self.pos = saved_pos;
+        None
+    }
+
+    /// Check if current token is a type specifier
+    fn is_type_specifier(&self) -> bool {
+        matches!(
+            self.peek(),
+            Some(Token::Int)
+                | Some(Token::Float)
+                | Some(Token::Char)
+                | Some(Token::Double)
+                | Some(Token::Void)
+                | Some(Token::Long)
+                | Some(Token::Short)
+        )
+    }
+
+    /// Check if this looks like a function (has parentheses after identifier)
+    fn is_function_declaration(&self) -> bool {
+        let _saved_pos = self.pos;
+        let mut check_pos = self.pos;
+
+        // Skip type specifier
+        if !self.is_type_specifier() {
+            return false;
+        }
+        check_pos += 1;
+
+        // Skip whitespace
+        while check_pos < self.tokens.len() {
+            match &self.tokens[check_pos] {
+                Token::Comment(_) | Token::BlockComment(_) | Token::Error(_) => {
+                    check_pos += 1;
                 }
                 _ => break,
             }
         }
 
-        if self.pos >= self.tokens.len() {
-            return None;
+        // Check for identifier
+        if !matches!(&self.tokens.get(check_pos), Some(Token::Identifier(_))) {
+            return false;
+        }
+        check_pos += 1;
+
+        // Skip whitespace
+        while check_pos < self.tokens.len() {
+            match &self.tokens[check_pos] {
+                Token::Comment(_) | Token::BlockComment(_) | Token::Error(_) => {
+                    check_pos += 1;
+                }
+                _ => break,
+            }
         }
 
-        match &self.tokens[self.pos] {
-            Token::Identifier(id) if id == "printf" => {
-                self.pos += 1;
-                if let Some(printf) = self.parse_printf_statement() {
-                    Some(ExternalDeclaration::Printf(printf))
-                } else {
-                    None
-                }
-            }
-            Token::Struct => {
-                self.pos += 1;
-                if let Some(struct_decl) = self.parse_struct_declaration() {
-                    Some(ExternalDeclaration::Struct(struct_decl))
-                } else {
-                    None
-                }
-            }
-            Token::Typedef => {
-                self.pos += 1;
-                if let Some(typedef_decl) = self.parse_typedef_declaration() {
-                    Some(ExternalDeclaration::Typedef(typedef_decl))
-                } else {
-                    None
-                }
-            }
-            Token::Enum => {
-                self.pos += 1;
-                if let Some(enum_decl) = self.parse_enum_declaration() {
-                    Some(ExternalDeclaration::Enum(enum_decl))
-                } else {
-                    None
-                }
-            }
-            Token::Static => {
-                self.pos += 1;
-                if let Some(mut var_decl) = self.parse_variable_declaration() {
-                    var_decl.storage_class = Some(StorageClass::Static);
-                    Some(ExternalDeclaration::Variable(var_decl))
-                } else {
-                    None
-                }
-            }
-            Token::Const => {
-                self.pos += 1;
-                if let Some(mut var_decl) = self.parse_variable_declaration() {
-                    var_decl.type_qualifiers.push(TypeQualifier::Const);
-                    Some(ExternalDeclaration::Variable(var_decl))
-                } else {
-                    None
-                }
-            }
-            // Handle function definitions: int function_name(...) { ... }
-            Token::Int
-            | Token::Void
-            | Token::Char
-            | Token::Float
-            | Token::Double
-            | Token::Long
-            | Token::Short => {
-                if let Some(func) = self.parse_function_definition() {
-                    Some(ExternalDeclaration::Function(func))
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
+        // Check for opening parenthesis
+        matches!(&self.tokens.get(check_pos), Some(Token::ParenL))
     }
 
-    fn parse_typedef_declaration(&mut self) -> Option<TypedefDeclaration> {
-        // Simple typedef parsing: typedef int myint;
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        let type_specifier = match &self.tokens[self.pos] {
-            Token::Int => {
-                self.pos += 1;
-                TypeSpecifier::Int
-            }
-            Token::Float => {
-                self.pos += 1;
-                TypeSpecifier::Float
-            }
-            Token::Char => {
-                self.pos += 1;
-                TypeSpecifier::Char
-            }
-            Token::Double => {
-                self.pos += 1;
-                TypeSpecifier::Double
-            }
-            Token::Void => {
-                self.pos += 1;
-                TypeSpecifier::Void
-            }
-            _ => return None,
-        };
-
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                id.clone()
-            }
-            _ => return None,
-        };
-
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-            self.pos += 1;
-        }
-
-        Some(TypedefDeclaration {
-            type_specifier,
-            declarator: Declarator {
-                name,
-                pointer_depth: 0,
-                array_sizes: Vec::new(),
-                function_params: None,
-            },
-        })
-    }
-
-    fn parse_enum_declaration(&mut self) -> Option<EnumDeclaration> {
-        // Simple enum parsing: enum Color { RED, GREEN, BLUE };
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                Some(id.clone())
-            }
-            _ => None,
-        };
-
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::BraceL {
-            return None;
-        }
-        self.pos += 1;
-
-        let mut enumerators = Vec::new();
-
-        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
-            if let Token::Identifier(id) = &self.tokens[self.pos] {
-                self.pos += 1;
-                enumerators.push(Enumerator {
-                    name: id.clone(),
-                    value: None,
-                });
-
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-                    self.pos += 1;
-                }
-            } else {
-                break;
-            }
-        }
-
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
-            self.pos += 1;
-        }
-
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-            self.pos += 1;
-        }
-
-        Some(EnumDeclaration { name, enumerators })
-    }
+    // ============================================
+    // Variable Declarations
+    // ============================================
 
     fn parse_variable_declaration(&mut self) -> Option<VariableDeclaration> {
-        // Simple variable parsing: static int global_var = 10; or const double global_const = PI;
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
+        let type_specifier = self.parse_type_specifier()?;
+        self.skip_whitespace();
 
-        let type_specifier = match &self.tokens[self.pos] {
-            Token::Int => {
-                self.pos += 1;
-                TypeSpecifier::Int
-            }
-            Token::Float => {
-                self.pos += 1;
-                TypeSpecifier::Float
-            }
-            Token::Char => {
-                self.pos += 1;
-                TypeSpecifier::Char
-            }
-            Token::Double => {
-                self.pos += 1;
-                TypeSpecifier::Double
-            }
-            Token::Void => {
-                self.pos += 1;
-                TypeSpecifier::Void
-            }
+        let name = match self.next() {
+            Some(Token::Identifier(id)) => id,
             _ => return None,
         };
 
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                id.clone()
-            }
-            _ => return None,
-        };
-
+        // Parse initializer if present
         let mut initializer = None;
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::AssignOp {
-            self.pos += 1;
-            // Skip the initializer value for now
-            while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::Semicolon {
-                self.pos += 1;
+        if self.consume(&Token::AssignOp) {
+            if let Some(expr) = self.parse_expression() {
+                initializer = Some(Initializer {
+                    kind: InitializerKind::Assignment(expr),
+                });
             }
         }
 
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-            self.pos += 1;
+        // Consume semicolon
+        if !self.consume(&Token::Semicolon) {
+            return None;
         }
 
         Some(VariableDeclaration {
-            storage_class: None, // Will be set by caller
+            storage_class: None,
             type_qualifiers: Vec::new(),
             type_specifier,
             declarator: Declarator {
@@ -687,187 +399,432 @@ impl Parser {
         })
     }
 
-    fn parse_printf_statement(&mut self) -> Option<PrintfStatement> {
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::ParenL {
-            return None;
-        }
-        self.pos += 1; // Consume '('
-
-        let args = self.parse_printf_args();
-
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-            self.pos += 1; // Consume ')'
-            if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                self.pos += 1; // Consume ';'
-                Some(PrintfStatement { args })
-            } else {
-                None
-            }
-        } else {
-            None
+    fn parse_type_specifier(&mut self) -> Option<TypeSpecifier> {
+        match self.next() {
+            Some(Token::Int) => Some(TypeSpecifier::Int),
+            Some(Token::Float) => Some(TypeSpecifier::Float),
+            Some(Token::Char) => Some(TypeSpecifier::Char),
+            Some(Token::Double) => Some(TypeSpecifier::Double),
+            Some(Token::Void) => Some(TypeSpecifier::Void),
+            Some(Token::Long) => Some(TypeSpecifier::Long),
+            Some(Token::Short) => Some(TypeSpecifier::Short),
+            _ => None,
         }
     }
 
-    fn parse_printf_args(&mut self) -> Vec<PrintfArg> {
-        let mut args = Vec::new();
-        if self.pos >= self.tokens.len() {
-            return args;
+    fn parse_type_specifier_string(&mut self) -> Option<String> {
+        match self.next() {
+            Some(Token::Int) => Some("int".to_string()),
+            Some(Token::Float) => Some("float".to_string()),
+            Some(Token::Char) => Some("char".to_string()),
+            Some(Token::Double) => Some("double".to_string()),
+            Some(Token::Void) => Some("void".to_string()),
+            Some(Token::Long) => Some("long".to_string()),
+            Some(Token::Short) => Some("short".to_string()),
+            _ => None,
         }
+    }
 
-        // First argument (if any) is often a StringLiteral
-        match &self.tokens[self.pos] {
-            Token::StringLit(s) => {
-                args.push(PrintfArg::StringLiteral(s.clone()));
-                self.pos += 1;
-            }
+    // ============================================
+    // Function Declarations
+    // ============================================
+
+    fn parse_function_declaration(&mut self) -> Option<FunctionDeclaration> {
+        let saved_pos = self.pos;
+        let return_type = self.parse_type_specifier_string()?;
+        self.skip_whitespace();
+
+        let name = match self.next() {
+            Some(Token::Identifier(id)) => id,
             _ => {
-                if let Some(expr) = self.parse_expression() {
-                    args.push(PrintfArg::Expression(expr));
-                }
+                self.pos = saved_pos;
+                return None;
             }
+        };
+
+        if !self.consume(&Token::ParenL) {
+            self.pos = saved_pos;
+            return None;
         }
 
-        // Parse tail (comma-separated expressions)
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-            self.pos += 1; // Consume ','
-            if let Some(expr) = self.parse_expression() {
-                args.push(PrintfArg::Expression(expr));
+        let parameters = self.parse_parameter_list();
+
+        if !self.consume(&Token::ParenR) {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        // Must have semicolon for declaration
+        if !self.consume(&Token::Semicolon) {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        Some(FunctionDeclaration {
+            return_type,
+            name,
+            parameters,
+        })
+    }
+
+    // ============================================
+    // Function Definitions
+    // ============================================
+
+    fn parse_function_definition(&mut self) -> Option<FunctionDefinition> {
+        let saved_pos = self.pos;
+        let return_type = self.parse_type_specifier_string()?;
+        self.skip_whitespace();
+
+        let name = match self.next() {
+            Some(Token::Identifier(id)) => id,
+            _ => {
+                self.pos = saved_pos;
+                return None;
+            }
+        };
+
+        if !self.consume(&Token::ParenL) {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        let parameters = self.parse_parameter_list();
+
+        if !self.consume(&Token::ParenR) {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        // Must have body for definition
+        if !self.consume(&Token::BraceL) {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        // Parse function body
+        let body = self.parse_statement_list();
+
+        // Find matching closing brace
+        if !self.find_matching_brace() {
+            self.pos = saved_pos;
+            return None;
+        }
+
+        Some(FunctionDefinition {
+            return_type,
+            name,
+            parameters,
+            body,
+        })
+    }
+
+    fn parse_parameter_list(&mut self) -> Vec<Parameter> {
+        let mut parameters = Vec::new();
+
+        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::ParenR {
+            self.skip_whitespace();
+            if self.pos >= self.tokens.len() || self.tokens[self.pos] == Token::ParenR {
+                break;
+            }
+
+            if let Some(param) = self.parse_parameter() {
+                parameters.push(param);
+            } else {
+                break;
+            }
+
+            if self.consume(&Token::Comma) {
+                continue;
             } else {
                 break;
             }
         }
 
-        args
+        parameters
     }
+
+    fn parse_parameter(&mut self) -> Option<Parameter> {
+        let param_type = self.parse_type_specifier_string()?;
+        self.skip_whitespace();
+
+        let name = match self.next() {
+            Some(Token::Identifier(id)) => id,
+            _ => return None,
+        };
+
+        Some(Parameter { param_type, name })
+    }
+
+    /// Find matching closing brace and advance position
+    fn find_matching_brace(&mut self) -> bool {
+        if self.consume(&Token::BraceR) {
+            return true;
+        }
+
+        // Search for matching brace by counting
+        let mut brace_count = 1;
+        let mut search_pos = self.pos;
+
+        while search_pos < self.tokens.len() && brace_count > 0 {
+            match &self.tokens[search_pos] {
+                Token::BraceL => brace_count += 1,
+                Token::BraceR => {
+                    brace_count -= 1;
+                    if brace_count == 0 {
+                        self.pos = search_pos + 1;
+                        return true;
+                    }
+                }
+                _ => {}
+            }
+            search_pos += 1;
+        }
+
+        false
+    }
+
+    // ============================================
+    // Statements
+    // ============================================
+
+    fn parse_statement_list(&mut self) -> Vec<Statement> {
+        let mut statements = Vec::new();
+
+        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
+            self.skip_whitespace();
+            if self.pos >= self.tokens.len() || self.tokens[self.pos] == Token::BraceR {
+                break;
+            }
+
+            if let Some(stmt) = self.parse_statement() {
+                statements.push(stmt);
+            } else {
+                // Skip unrecognized token
+                self.pos += 1;
+            }
+        }
+
+        statements
+    }
+
+    fn parse_statement(&mut self) -> Option<Statement> {
+        self.skip_whitespace();
+
+        match self.peek() {
+            Some(Token::Return) => self.parse_return_statement(),
+            Some(Token::If) => self.parse_if_statement(),
+            Some(Token::While) => self.parse_while_statement(),
+            Some(Token::For) => self.parse_for_statement(),
+            Some(Token::Break) => self.parse_break_statement(),
+            Some(Token::BraceL) => self.parse_block_statement(),
+            Some(Token::Int)
+            | Some(Token::Float)
+            | Some(Token::Char)
+            | Some(Token::Double)
+            | Some(Token::Long)
+            | Some(Token::Short) => self.parse_declaration_statement(),
+            _ => self.parse_expression_statement(),
+        }
+    }
+
+    fn parse_return_statement(&mut self) -> Option<Statement> {
+        if !self.consume(&Token::Return) {
+            return None;
+        }
+
+        self.skip_whitespace();
+        let expr = if self.peek() != Some(&Token::Semicolon) {
+            self.parse_expression()
+        } else {
+            None
+        };
+
+        self.consume(&Token::Semicolon);
+        Some(Statement::Return(expr))
+    }
+
+    fn parse_if_statement(&mut self) -> Option<Statement> {
+        if !self.consume(&Token::If) {
+            return None;
+        }
+
+        if !self.consume(&Token::ParenL) {
+            return None;
+        }
+
+        let condition = self.parse_expression()?;
+
+        if !self.consume(&Token::ParenR) {
+            return None;
+        }
+
+        let then_stmt = self.parse_statement()?;
+
+        let else_stmt = if self.consume(&Token::Else) {
+            self.parse_statement()
+        } else {
+            None
+        };
+
+        Some(Statement::If(
+            condition,
+            Box::new(then_stmt),
+            else_stmt.map(Box::new),
+        ))
+    }
+
+    fn parse_while_statement(&mut self) -> Option<Statement> {
+        if !self.consume(&Token::While) {
+            return None;
+        }
+
+        if !self.consume(&Token::ParenL) {
+            return None;
+        }
+
+        let condition = self.parse_expression()?;
+
+        if !self.consume(&Token::ParenR) {
+            return None;
+        }
+
+        let body = self.parse_statement()?;
+
+        Some(Statement::While(condition, Box::new(body)))
+    }
+
+    fn parse_for_statement(&mut self) -> Option<Statement> {
+        if !self.consume(&Token::For) {
+            return None;
+        }
+
+        if !self.consume(&Token::ParenL) {
+            return None;
+        }
+
+        // Parse init (optional)
+        let init = if self.peek() != Some(&Token::Semicolon) {
+            self.parse_statement()
+        } else {
+            None
+        };
+
+        self.consume(&Token::Semicolon);
+
+        // Parse condition (optional)
+        let condition = if self.peek() != Some(&Token::Semicolon) {
+            self.parse_expression()
+        } else {
+            None
+        };
+
+        self.consume(&Token::Semicolon);
+
+        // Parse update (optional)
+        let update = if self.peek() != Some(&Token::ParenR) {
+            self.parse_expression()
+        } else {
+            None
+        };
+
+        if !self.consume(&Token::ParenR) {
+            return None;
+        }
+
+        let body = self.parse_statement()?;
+
+        Some(Statement::For(
+            init.map(Box::new),
+            condition,
+            update,
+            Box::new(body),
+        ))
+    }
+
+    fn parse_break_statement(&mut self) -> Option<Statement> {
+        if self.consume(&Token::Break) {
+            self.consume(&Token::Semicolon);
+            Some(Statement::Break)
+        } else {
+            None
+        }
+    }
+
+    fn parse_block_statement(&mut self) -> Option<Statement> {
+        if !self.consume(&Token::BraceL) {
+            return None;
+        }
+
+        let stmts = self.parse_statement_list();
+
+        if self.consume(&Token::BraceR) {
+            Some(Statement::Block(stmts))
+        } else {
+            None
+        }
+    }
+
+    fn parse_declaration_statement(&mut self) -> Option<Statement> {
+        if let Some(var_decl) = self.parse_variable_declaration() {
+            Some(Statement::Declaration(var_decl))
+        } else {
+            None
+        }
+    }
+
+    fn parse_expression_statement(&mut self) -> Option<Statement> {
+        if let Some(expr) = self.parse_expression() {
+            self.consume(&Token::Semicolon);
+            Some(Statement::Expression(expr))
+        } else {
+            None
+        }
+    }
+
+    // ============================================
+    // Expressions
+    // ============================================
 
     fn parse_expression(&mut self) -> Option<Expression> {
         self.parse_assignment_expression()
     }
 
     fn parse_assignment_expression(&mut self) -> Option<Expression> {
-        let left = self.parse_conditional_expression()?;
+        let mut left = self.parse_conditional_expression()?;
 
-        if self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::AssignOp => {
-                    self.pos += 1;
-                    // Check if there's a missing expression after assignment operator
-                    if self.pos >= self.tokens.len() || self.tokens[self.pos] == Token::Semicolon {
-                        // Missing expression after assignment - this should be a parse error
-                        return None;
-                    }
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::Assign,
-                        Box::new(right),
-                    ))
+        while let Some(op) = self.peek() {
+            let assignment_op = match op {
+                Token::AssignOp => Some(AssignmentOperator::Assign),
+                Token::PlusAssign => Some(AssignmentOperator::PlusAssign),
+                Token::MinusAssign => Some(AssignmentOperator::MinusAssign),
+                Token::MultAssign => Some(AssignmentOperator::MultAssign),
+                Token::DivAssign => Some(AssignmentOperator::DivAssign),
+                Token::ModAssign => Some(AssignmentOperator::ModAssign),
+                _ => None,
+            };
+
+            if let Some(op) = assignment_op {
+                self.pos += 1;
+                if let Some(right) = self.parse_assignment_expression() {
+                    left = Expression::Assignment(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::PlusAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::PlusAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::MinusAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::MinusAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::MultAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::MultAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::DivAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::DivAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::ModAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::ModAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::LShiftAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::LShiftAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::RShiftAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::RShiftAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::AndAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::AndAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::XorAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::XorAssign,
-                        Box::new(right),
-                    ))
-                }
-                Token::OrAssign => {
-                    self.pos += 1;
-                    let right = self.parse_assignment_expression()?;
-                    Some(Expression::Assignment(
-                        Box::new(left),
-                        AssignmentOperator::OrAssign,
-                        Box::new(right),
-                    ))
-                }
-                _ => Some(left),
+            } else {
+                break;
             }
-        } else {
-            Some(left)
         }
+
+        Some(left)
     }
 
     fn parse_conditional_expression(&mut self) -> Option<Expression> {
         let condition = self.parse_logical_or_expression()?;
 
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Question {
-            self.pos += 1; // Consume '?'
+        if self.consume(&Token::Question) {
             let true_expr = self.parse_expression()?;
-            if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Colon {
-                self.pos += 1; // Consume ':'
+            if self.consume(&Token::Colon) {
                 let false_expr = self.parse_conditional_expression()?;
                 Some(Expression::Conditional(
                     Box::new(condition),
@@ -885,10 +842,12 @@ impl Parser {
     fn parse_logical_or_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_logical_and_expression()?;
 
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::OrOp {
-            self.pos += 1; // Consume '||'
-            let right = self.parse_logical_and_expression()?;
-            left = Expression::BinaryOp(Box::new(left), BinaryOperator::Or, Box::new(right));
+        while self.consume(&Token::OrOp) {
+            if let Some(right) = self.parse_logical_and_expression() {
+                left = Expression::BinaryOp(Box::new(left), BinaryOperator::Or, Box::new(right));
+            } else {
+                return None;
+            }
         }
 
         Some(left)
@@ -897,10 +856,12 @@ impl Parser {
     fn parse_logical_and_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_bitwise_or_expression()?;
 
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::AndOp {
-            self.pos += 1; // Consume '&&'
-            let right = self.parse_bitwise_or_expression()?;
-            left = Expression::BinaryOp(Box::new(left), BinaryOperator::And, Box::new(right));
+        while self.consume(&Token::AndOp) {
+            if let Some(right) = self.parse_bitwise_or_expression() {
+                left = Expression::BinaryOp(Box::new(left), BinaryOperator::And, Box::new(right));
+            } else {
+                return None;
+            }
         }
 
         Some(left)
@@ -909,10 +870,12 @@ impl Parser {
     fn parse_bitwise_or_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_bitwise_xor_expression()?;
 
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BitOrOp {
-            self.pos += 1; // Consume '|'
-            let right = self.parse_bitwise_xor_expression()?;
-            left = Expression::BinaryOp(Box::new(left), BinaryOperator::BitOr, Box::new(right));
+        while self.consume(&Token::BitOrOp) {
+            if let Some(right) = self.parse_bitwise_xor_expression() {
+                left = Expression::BinaryOp(Box::new(left), BinaryOperator::BitOr, Box::new(right));
+            } else {
+                return None;
+            }
         }
 
         Some(left)
@@ -921,10 +884,12 @@ impl Parser {
     fn parse_bitwise_xor_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_bitwise_and_expression()?;
 
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Xor {
-            self.pos += 1; // Consume '^'
-            let right = self.parse_bitwise_and_expression()?;
-            left = Expression::BinaryOp(Box::new(left), BinaryOperator::Xor, Box::new(right));
+        while self.consume(&Token::Xor) {
+            if let Some(right) = self.parse_bitwise_and_expression() {
+                left = Expression::BinaryOp(Box::new(left), BinaryOperator::Xor, Box::new(right));
+            } else {
+                return None;
+            }
         }
 
         Some(left)
@@ -933,10 +898,12 @@ impl Parser {
     fn parse_bitwise_and_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_equality_expression()?;
 
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BitAndOp {
-            self.pos += 1; // Consume '&'
-            let right = self.parse_equality_expression()?;
-            left = Expression::BinaryOp(Box::new(left), BinaryOperator::BitAnd, Box::new(right));
+        while self.consume(&Token::BitAndOp) {
+            if let Some(right) = self.parse_equality_expression() {
+                left = Expression::BinaryOp(Box::new(left), BinaryOperator::BitAnd, Box::new(right));
+            } else {
+                return None;
+            }
         }
 
         Some(left)
@@ -945,27 +912,23 @@ impl Parser {
     fn parse_equality_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_relational_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::EqualsOp => {
-                    self.pos += 1; // Consume '=='
-                    let right = self.parse_relational_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::Equals,
-                        Box::new(right),
-                    );
+        loop {
+            let op = if self.consume(&Token::EqualsOp) {
+                Some(BinaryOperator::Equals)
+            } else if self.consume(&Token::NotEqualsOp) {
+                Some(BinaryOperator::NotEquals)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                if let Some(right) = self.parse_relational_expression() {
+                    left = Expression::BinaryOp(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::NotEqualsOp => {
-                    self.pos += 1; // Consume '!='
-                    let right = self.parse_relational_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::NotEquals,
-                        Box::new(right),
-                    );
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
 
@@ -975,42 +938,27 @@ impl Parser {
     fn parse_relational_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_shift_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::LessOp => {
-                    self.pos += 1; // Consume '<'
-                    let right = self.parse_shift_expression()?;
-                    left =
-                        Expression::BinaryOp(Box::new(left), BinaryOperator::Less, Box::new(right));
+        loop {
+            let op = if self.consume(&Token::LessOp) {
+                Some(BinaryOperator::Less)
+            } else if self.consume(&Token::GreaterOp) {
+                Some(BinaryOperator::Greater)
+            } else if self.consume(&Token::LessEqOp) {
+                Some(BinaryOperator::LessEq)
+            } else if self.consume(&Token::GreaterEqOp) {
+                Some(BinaryOperator::GreaterEq)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                if let Some(right) = self.parse_shift_expression() {
+                    left = Expression::BinaryOp(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::GreaterOp => {
-                    self.pos += 1; // Consume '>'
-                    let right = self.parse_shift_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::Greater,
-                        Box::new(right),
-                    );
-                }
-                Token::LessEqOp => {
-                    self.pos += 1; // Consume '<='
-                    let right = self.parse_shift_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::LessEq,
-                        Box::new(right),
-                    );
-                }
-                Token::GreaterEqOp => {
-                    self.pos += 1; // Consume '>='
-                    let right = self.parse_shift_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::GreaterEq,
-                        Box::new(right),
-                    );
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
 
@@ -1020,27 +968,23 @@ impl Parser {
     fn parse_shift_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_additive_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::LShift => {
-                    self.pos += 1; // Consume '<<'
-                    let right = self.parse_additive_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::LShift,
-                        Box::new(right),
-                    );
+        loop {
+            let op = if self.consume(&Token::LShift) {
+                Some(BinaryOperator::LShift)
+            } else if self.consume(&Token::RShift) {
+                Some(BinaryOperator::RShift)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                if let Some(right) = self.parse_additive_expression() {
+                    left = Expression::BinaryOp(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::RShift => {
-                    self.pos += 1; // Consume '>>'
-                    let right = self.parse_additive_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::RShift,
-                        Box::new(right),
-                    );
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
 
@@ -1050,24 +994,23 @@ impl Parser {
     fn parse_additive_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_multiplicative_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Plus => {
-                    self.pos += 1; // Consume '+'
-                    let right = self.parse_multiplicative_expression()?;
-                    left =
-                        Expression::BinaryOp(Box::new(left), BinaryOperator::Plus, Box::new(right));
+        loop {
+            let op = if self.consume(&Token::Plus) {
+                Some(BinaryOperator::Plus)
+            } else if self.consume(&Token::Minus) {
+                Some(BinaryOperator::Minus)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                if let Some(right) = self.parse_multiplicative_expression() {
+                    left = Expression::BinaryOp(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::Minus => {
-                    self.pos += 1; // Consume '-'
-                    let right = self.parse_multiplicative_expression()?;
-                    left = Expression::BinaryOp(
-                        Box::new(left),
-                        BinaryOperator::Minus,
-                        Box::new(right),
-                    );
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
 
@@ -1077,27 +1020,25 @@ impl Parser {
     fn parse_multiplicative_expression(&mut self) -> Option<Expression> {
         let mut left = self.parse_unary_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Mult => {
-                    self.pos += 1; // Consume '*'
-                    let right = self.parse_unary_expression()?;
-                    left =
-                        Expression::BinaryOp(Box::new(left), BinaryOperator::Mult, Box::new(right));
+        loop {
+            let op = if self.consume(&Token::Mult) {
+                Some(BinaryOperator::Mult)
+            } else if self.consume(&Token::Div) {
+                Some(BinaryOperator::Div)
+            } else if self.consume(&Token::Mod) {
+                Some(BinaryOperator::Mod)
+            } else {
+                None
+            };
+
+            if let Some(op) = op {
+                if let Some(right) = self.parse_unary_expression() {
+                    left = Expression::BinaryOp(Box::new(left), op, Box::new(right));
+                } else {
+                    return None;
                 }
-                Token::Div => {
-                    self.pos += 1; // Consume '/'
-                    let right = self.parse_unary_expression()?;
-                    left =
-                        Expression::BinaryOp(Box::new(left), BinaryOperator::Div, Box::new(right));
-                }
-                Token::Mod => {
-                    self.pos += 1; // Consume '%'
-                    let right = self.parse_unary_expression()?;
-                    left =
-                        Expression::BinaryOp(Box::new(left), BinaryOperator::Mod, Box::new(right));
-                }
-                _ => break,
+            } else {
+                break;
             }
         }
 
@@ -1105,114 +1046,108 @@ impl Parser {
     }
 
     fn parse_unary_expression(&mut self) -> Option<Expression> {
-        if self.pos >= self.tokens.len() {
-            return None;
+        if let Some(op) = self.peek() {
+            match op {
+                Token::Plus => {
+                    self.pos += 1;
+                    if let Some(expr) = self.parse_unary_expression() {
+                        return Some(Expression::UnaryOp(UnaryOperator::Plus, Box::new(expr)));
+                    }
+                }
+                Token::Minus => {
+                    self.pos += 1;
+                    if let Some(expr) = self.parse_unary_expression() {
+                        return Some(Expression::UnaryOp(UnaryOperator::Minus, Box::new(expr)));
+                    }
+                }
+                Token::Not => {
+                    self.pos += 1;
+                    if let Some(expr) = self.parse_unary_expression() {
+                        return Some(Expression::UnaryOp(UnaryOperator::Not, Box::new(expr)));
+                    }
+                }
+                Token::BitAndOp => {
+                    self.pos += 1;
+                    if let Some(expr) = self.parse_unary_expression() {
+                        return Some(Expression::UnaryOp(UnaryOperator::AddressOf, Box::new(expr)));
+                    }
+                }
+                Token::Mult => {
+                    self.pos += 1;
+                    if let Some(expr) = self.parse_unary_expression() {
+                        return Some(Expression::UnaryOp(UnaryOperator::Dereference, Box::new(expr)));
+                    }
+                }
+                _ => {}
+            }
         }
 
-        match &self.tokens[self.pos] {
-            Token::Plus => {
-                self.pos += 1; // Consume '+'
-                let expr = self.parse_unary_expression()?;
-                Some(Expression::UnaryOp(UnaryOperator::Plus, Box::new(expr)))
-            }
-            Token::Minus => {
-                self.pos += 1; // Consume '-'
-                let expr = self.parse_unary_expression()?;
-                Some(Expression::UnaryOp(UnaryOperator::Minus, Box::new(expr)))
-            }
-            Token::Not => {
-                self.pos += 1; // Consume '!'
-                let expr = self.parse_unary_expression()?;
-                Some(Expression::UnaryOp(UnaryOperator::Not, Box::new(expr)))
-            }
-            Token::BitAndOp => {
-                self.pos += 1; // Consume '&'
-                let expr = self.parse_unary_expression()?;
-                Some(Expression::UnaryOp(
-                    UnaryOperator::AddressOf,
-                    Box::new(expr),
-                ))
-            }
-            Token::Mult => {
-                self.pos += 1; // Consume '*'
-                let expr = self.parse_unary_expression()?;
-                Some(Expression::UnaryOp(
-                    UnaryOperator::Dereference,
-                    Box::new(expr),
-                ))
-            }
-            _ => self.parse_postfix_expression(),
-        }
+        self.parse_postfix_expression()
     }
 
     fn parse_postfix_expression(&mut self) -> Option<Expression> {
         let mut expr = self.parse_primary_expression()?;
 
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::ParenL => {
-                    // Function call
-                    self.pos += 1; // Consume '('
+        loop {
+            match self.peek() {
+                Some(Token::ParenL) => {
+                    self.pos += 1;
                     let mut args = Vec::new();
 
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::ParenR {
+                    if self.peek() != Some(&Token::ParenR) {
                         if let Some(arg) = self.parse_expression() {
                             args.push(arg);
                         }
 
-                        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma
-                        {
-                            self.pos += 1; // Consume ','
+                        while self.consume(&Token::Comma) {
                             if let Some(arg) = self.parse_expression() {
                                 args.push(arg);
                             }
                         }
                     }
 
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                        self.pos += 1; // Consume ')'
+                    if self.consume(&Token::ParenR) {
                         if let Expression::Identifier(name) = expr {
                             expr = Expression::FunctionCall(name, args);
                         }
+                    } else {
+                        break;
                     }
                 }
-                Token::BracketL => {
-                    // Array access
-                    self.pos += 1; // Consume '['
+                Some(Token::BracketL) => {
+                    self.pos += 1;
                     if let Some(index) = self.parse_expression() {
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BracketR
-                        {
-                            self.pos += 1; // Consume ']'
+                        if self.consume(&Token::BracketR) {
                             expr = Expression::ArrayAccess(Box::new(expr), Box::new(index));
+                        } else {
+                            break;
                         }
+                    } else {
+                        break;
                     }
                 }
-                Token::Dot => {
-                    // Member access
-                    self.pos += 1; // Consume '.'
-                    if self.pos < self.tokens.len() {
-                        if let Token::Identifier(member) = &self.tokens[self.pos] {
-                            self.pos += 1; // Consume member name
-                            expr = Expression::MemberAccess(Box::new(expr), member.clone());
-                        }
+                Some(Token::Dot) => {
+                    self.pos += 1;
+                    if let Some(Token::Identifier(member)) = self.next() {
+                        expr = Expression::MemberAccess(Box::new(expr), member);
+                    } else {
+                        break;
                     }
                 }
-                Token::Arrow => {
-                    // Pointer access
-                    self.pos += 1; // Consume '->'
-                    if self.pos < self.tokens.len() {
-                        if let Token::Identifier(member) = &self.tokens[self.pos] {
-                            self.pos += 1; // Consume member name
-                            expr = Expression::PointerAccess(Box::new(expr), member.clone());
-                        }
+                Some(Token::Arrow) => {
+                    self.pos += 1;
+                    if let Some(Token::Identifier(member)) = self.next() {
+                        expr = Expression::PointerAccess(Box::new(expr), member);
+                    } else {
+                        break;
                     }
                 }
-                Token::PlusPlus => {
-                    self.pos += 1; // Consume '++'
+                Some(Token::PlusPlus) => {
+                    self.pos += 1;
                     expr = Expression::PostfixOp(Box::new(expr), PostfixOperator::PlusPlus);
                 }
-                Token::MinusMinus => {
-                    self.pos += 1; // Consume '--'
+                Some(Token::MinusMinus) => {
+                    self.pos += 1;
                     expr = Expression::PostfixOp(Box::new(expr), PostfixOperator::MinusMinus);
                 }
                 _ => break,
@@ -1223,32 +1158,14 @@ impl Parser {
     }
 
     fn parse_primary_expression(&mut self) -> Option<Expression> {
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                Some(Expression::Identifier(id.clone()))
-            }
-            Token::IntLit(n) => {
-                self.pos += 1;
-                Some(Expression::Constant(Constant::Integer(*n)))
-            }
-            Token::FloatLit(f) => {
-                self.pos += 1;
-                Some(Expression::Constant(Constant::Float(*f)))
-            }
-            Token::StringLit(s) => {
-                self.pos += 1;
-                Some(Expression::StringLiteral(s.clone()))
-            }
-            Token::ParenL => {
-                self.pos += 1; // Consume '('
+        match self.next() {
+            Some(Token::Identifier(id)) => Some(Expression::Identifier(id)),
+            Some(Token::IntLit(n)) => Some(Expression::Constant(Constant::Integer(n))),
+            Some(Token::FloatLit(f)) => Some(Expression::Constant(Constant::Float(f))),
+            Some(Token::StringLit(s)) => Some(Expression::StringLiteral(s)),
+            Some(Token::ParenL) => {
                 let expr = self.parse_expression()?;
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                    self.pos += 1; // Consume ')'
+                if self.consume(&Token::ParenR) {
                     Some(expr)
                 } else {
                     None
@@ -1258,741 +1175,58 @@ impl Parser {
         }
     }
 
-    fn parse_struct_declaration(&mut self) -> Option<StructDeclaration> {
-        // Simple struct parsing: struct Point { int x; int y; };
-        if self.pos >= self.tokens.len() {
-            return None;
+    // ============================================
+    // Error Detection
+    // ============================================
+
+    fn check_for_specific_errors(&mut self) -> Result<(), ParseError> {
+        if !self.is_at_top_level() {
+            return Ok(());
         }
 
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                Some(id.clone())
-            }
-            _ => None,
-        };
-
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::BraceL {
-            return None;
-        }
-        self.pos += 1;
-
-        let mut specifiers = Vec::new();
-        let mut declarators = Vec::new();
-
-        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
-            // Parse member: int x;
-            if let Some(member_specifiers) = self.parse_specifier_qualifier_list() {
-                specifiers.extend(member_specifiers);
-
-                if let Some(member_declarators) = self.parse_struct_declarator_list() {
-                    declarators.extend(member_declarators);
-                }
-            } else {
-                break;
-            }
+        // Check for missing identifier after type: int = 5;
+        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double | Token::Long | Token::Short | Token::Void),
+                Some(Token::AssignOp),
+                Some(Token::IntLit(_) | Token::FloatLit(_) | Token::StringLit(_) | Token::BoolLit(_))) =
+            (self.peek(), self.peek_at(1), self.peek_at(2))
+        {
+            return Err(ParseError::ExpectedIdentifier);
         }
 
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
-            self.pos += 1;
+        // Check for missing type specifier: x = 5;
+        if let (Some(Token::Identifier(_)), Some(Token::AssignOp)) = (self.peek(), self.peek_at(1)) {
+            return Err(ParseError::ExpectedTypeToken);
         }
 
-        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-            self.pos += 1;
-        }
-
-        Some(StructDeclaration {
-            specifiers,
-            declarators,
-        })
-    }
-
-    fn parse_specifier_qualifier_list(&mut self) -> Option<Vec<SpecifierQualifier>> {
-        let mut specifiers = Vec::new();
-        while self.pos < self.tokens.len() {
-            match &self.tokens[self.pos] {
-                Token::Int => {
-                    specifiers.push(SpecifierQualifier::TypeSpecifier(TypeSpecifier::Int));
-                    self.pos += 1;
-                }
-                Token::Float => {
-                    specifiers.push(SpecifierQualifier::TypeSpecifier(TypeSpecifier::Float));
-                    self.pos += 1;
-                }
-                Token::Identifier(id) if id == "const" => {
-                    specifiers.push(SpecifierQualifier::TypeQualifier(TypeQualifier::Const));
-                    self.pos += 1;
-                }
-                Token::Identifier(id) if id == "volatile" => {
-                    specifiers.push(SpecifierQualifier::TypeQualifier(TypeQualifier::Volatile));
-                    self.pos += 1;
-                }
-                _ => break,
-            }
-        }
-        if specifiers.is_empty() {
-            None
-        } else {
-            Some(specifiers)
-        }
-    }
-
-    fn parse_struct_declarator_list(&mut self) -> Option<Vec<StructDeclarator>> {
-        let mut declarators = Vec::new();
-        if let Some(decl) = self.parse_struct_declarator() {
-            declarators.push(decl);
-        } else {
-            return None;
-        }
-
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-            self.pos += 1; // Consume ','
-            if let Some(decl) = self.parse_struct_declarator() {
-                declarators.push(decl);
-            } else {
-                break;
+        // Check for missing value after assignment: int x = ;
+        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double),
+                Some(Token::Identifier(_)),
+                Some(Token::AssignOp),
+                Some(Token::Semicolon)) =
+            (self.peek(), self.peek_at(1), self.peek_at(2), self.peek_at(3))
+        {
+            if matches!(self.peek(), Some(Token::Int)) {
+                return Err(ParseError::ExpectedIntLit);
+            } else if matches!(self.peek(), Some(Token::Float)) {
+                return Err(ParseError::ExpectedFloatLit);
+            } else if matches!(self.peek(), Some(Token::Char)) {
+                return Err(ParseError::ExpectedStringLit);
             }
         }
 
-        Some(declarators)
-    }
-
-    fn parse_struct_declarator(&mut self) -> Option<StructDeclarator> {
-        if self.pos >= self.tokens.len() {
-            return None;
+        // Check for missing operand after operator: int x = 5 + ;
+        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double),
+                Some(Token::Identifier(_)),
+                Some(Token::AssignOp),
+                Some(Token::IntLit(_) | Token::FloatLit(_)),
+                Some(Token::Plus | Token::Minus | Token::Mult | Token::Div),
+                Some(Token::Semicolon)) =
+            (self.peek(), self.peek_at(1), self.peek_at(2), self.peek_at(3), self.peek_at(4), self.peek_at(5))
+        {
+            return Err(ParseError::FailedToFindToken("Missing operand after operator".to_string()));
         }
 
-        match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                let name = id.clone();
-                self.pos += 1;
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Colon {
-                    self.pos += 1; // Consume ':'
-                    if let Some(expr) = self.parse_expression() {
-                        // Consume semicolon after bitfield
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon
-                        {
-                            self.pos += 1;
-                        }
-                        Some(StructDeclarator {
-                            declarator: Some(Declarator {
-                                name: name.clone(),
-                                pointer_depth: 0,
-                                array_sizes: vec![],
-                                function_params: None,
-                            }),
-                            bitfield: Some(expr),
-                        })
-                    } else {
-                        None
-                    }
-                } else {
-                    // Consume semicolon after member
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                        self.pos += 1;
-                    }
-                    Some(StructDeclarator {
-                        declarator: Some(Declarator {
-                            name,
-                            pointer_depth: 0,
-                            array_sizes: vec![],
-                            function_params: None,
-                        }),
-                        bitfield: None,
-                    })
-                }
-            }
-            Token::Colon => {
-                self.pos += 1; // Consume ':'
-                if let Some(expr) = self.parse_expression() {
-                    Some(StructDeclarator {
-                        declarator: None,
-                        bitfield: Some(expr),
-                    })
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
-
-    fn parse_initializer(&mut self) -> Option<Initializer> {
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        match &self.tokens[self.pos] {
-            Token::BraceL => {
-                self.pos += 1; // Consume '{'
-                let mut initializers = Vec::new();
-                if let Some(init) = self.parse_initializer() {
-                    initializers.push(init);
-                } else {
-                    return None;
-                }
-
-                while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-                    self.pos += 1; // Consume ','
-                    if let Some(init) = self.parse_initializer() {
-                        initializers.push(init);
-                    } else {
-                        // Allow trailing comma
-                        break;
-                    }
-                }
-
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
-                    self.pos += 1; // Consume '}'
-                    Some(Initializer {
-                        kind: InitializerKind::List(initializers),
-                    })
-                } else {
-                    None
-                }
-            }
-            _ => {
-                if let Some(expr) = self.parse_expression() {
-                    Some(Initializer {
-                        kind: InitializerKind::Assignment(expr),
-                    })
-                } else {
-                    None
-                }
-            }
-        }
-    }
-
-    fn parse_parameter_type_list(&mut self) -> Option<ParameterTypeList> {
-        let mut parameters = Vec::new();
-        let mut variadic = false;
-
-        if let Some(param) = self.parse_parameter_declaration() {
-            parameters.push(param);
-        } else {
-            return None;
-        }
-
-        while self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-            self.pos += 1; // Consume ','
-            if self.pos < self.tokens.len()
-                && self.tokens[self.pos] == Token::Identifier("...".to_string())
-            {
-                variadic = true;
-                self.pos += 1;
-                break;
-            }
-            if let Some(param) = self.parse_parameter_declaration() {
-                parameters.push(param);
-            } else {
-                break;
-            }
-        }
-
-        Some(ParameterTypeList {
-            parameters,
-            variadic,
-        })
-    }
-
-    fn parse_parameter_declaration(&mut self) -> Option<ParameterDeclaration> {
-        let specifiers = self.parse_specifier_qualifier_list()?;
-        let declarator = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                Some(Declarator {
-                    name: id.clone(),
-                    pointer_depth: 0,
-                    array_sizes: vec![],
-                    function_params: None,
-                })
-            }
-            _ => None, // Abstract declarator (no name) is allowed
-        };
-        Some(ParameterDeclaration {
-            specifiers,
-            declarator,
-        })
-    }
-
-    fn parse_function_definition(&mut self) -> Option<FunctionDefinition> {
-        // Parse return type
-        let return_type = match &self.tokens[self.pos] {
-            Token::Int => {
-                self.pos += 1;
-                "int".to_string()
-            }
-            Token::Void => {
-                self.pos += 1;
-                "void".to_string()
-            }
-            Token::Char => {
-                self.pos += 1;
-                "char".to_string()
-            }
-            Token::Float => {
-                self.pos += 1;
-                "float".to_string()
-            }
-            Token::Double => {
-                self.pos += 1;
-                "double".to_string()
-            }
-            Token::Long => {
-                self.pos += 1;
-                "long".to_string()
-            }
-            Token::Short => {
-                self.pos += 1;
-                "short".to_string()
-            }
-            _ => return None,
-        };
-
-        // Parse function name
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                id.clone()
-            }
-            _ => return None,
-        };
-
-        // Parse parameters: (int a, int b)
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::ParenL {
-            return None;
-        }
-        self.pos += 1; // Consume '('
-
-        let mut parameters = Vec::new();
-        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::ParenR {
-            if let Some(param) = self.parse_function_parameter() {
-                parameters.push(param);
-            } else {
-                break;
-            }
-
-            // Check for comma
-            if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Comma {
-                self.pos += 1; // Consume ','
-            }
-        }
-
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::ParenR {
-            return None;
-        }
-        self.pos += 1; // Consume ')'
-
-        // Parse function body: { ... }
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::BraceL {
-            return None;
-        }
-        self.pos += 1; // Consume '{'
-
-        let mut body = Vec::new();
-        while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
-            if let Some(stmt) = self.parse_statement() {
-                body.push(stmt);
-            } else {
-                break;
-            }
-        }
-
-        if self.pos >= self.tokens.len() || self.tokens[self.pos] != Token::BraceR {
-            return None;
-        }
-        self.pos += 1; // Consume '}'
-
-        Some(FunctionDefinition {
-            return_type,
-            name,
-            parameters,
-            body,
-        })
-    }
-
-    fn parse_function_parameter(&mut self) -> Option<Parameter> {
-        // Parse parameter type
-        let param_type = match &self.tokens[self.pos] {
-            Token::Int => {
-                self.pos += 1;
-                "int".to_string()
-            }
-            Token::Float => {
-                self.pos += 1;
-                "float".to_string()
-            }
-            Token::Char => {
-                self.pos += 1;
-                "char".to_string()
-            }
-            Token::Double => {
-                self.pos += 1;
-                "double".to_string()
-            }
-            Token::Long => {
-                self.pos += 1;
-                "long".to_string()
-            }
-            Token::Short => {
-                self.pos += 1;
-                "short".to_string()
-            }
-            _ => return None,
-        };
-
-        // Parse parameter name
-        let name = match &self.tokens[self.pos] {
-            Token::Identifier(id) => {
-                self.pos += 1;
-                id.clone()
-            }
-            _ => return None,
-        };
-
-        Some(Parameter { param_type, name })
-    }
-
-    fn parse_statement(&mut self) -> Option<Statement> {
-        if self.pos >= self.tokens.len() {
-            return None;
-        }
-
-        match &self.tokens[self.pos] {
-            Token::Return => {
-                self.pos += 1; // Consume 'return'
-                let expr =
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::Semicolon {
-                        Some(
-                            self.parse_expression()
-                                .unwrap_or(Expression::Identifier("".to_string())),
-                        )
-                    } else {
-                        None
-                    };
-
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                    self.pos += 1; // Consume ';'
-                }
-
-                Some(Statement::Return(expr))
-            }
-            Token::If => {
-                self.pos += 1; // Consume 'if'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
-                    self.pos += 1; // Consume '('
-                    let condition = self.parse_expression()?;
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                        self.pos += 1; // Consume ')'
-                        let then_stmt = self.parse_statement()?;
-                        let else_stmt = if self.pos < self.tokens.len()
-                            && self.tokens[self.pos] == Token::Else
-                        {
-                            self.pos += 1; // Consume 'else'
-                            Some(self.parse_statement()?)
-                        } else {
-                            None
-                        };
-                        Some(Statement::If(
-                            condition,
-                            Box::new(then_stmt),
-                            else_stmt.map(Box::new),
-                        ))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::For => {
-                println!("DEBUG: Found For token at position {}", self.pos);
-                self.pos += 1; // Consume 'for'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
-                    self.pos += 1; // Consume '('
-
-                    // Parse initialization (optional)
-                    let init = if self.pos < self.tokens.len()
-                        && self.tokens[self.pos] != Token::Semicolon
-                    {
-                        Some(Box::new(self.parse_statement()?))
-                    } else {
-                        None
-                    };
-
-                    // Parse condition (optional)
-                    let condition = if self.pos < self.tokens.len()
-                        && self.tokens[self.pos] != Token::Semicolon
-                    {
-                        Some(self.parse_expression()?)
-                    } else {
-                        None
-                    };
-
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                        self.pos += 1; // Consume ';'
-                    }
-
-                    // Parse update (optional)
-                    let update =
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] != Token::ParenR {
-                            Some(self.parse_expression()?)
-                        } else {
-                            None
-                        };
-
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                        self.pos += 1; // Consume ')'
-                        let body = self.parse_statement()?;
-                        Some(Statement::For(init, condition, update, Box::new(body)))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::While => {
-                self.pos += 1; // Consume 'while'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
-                    self.pos += 1; // Consume '('
-                    let condition = self.parse_expression()?;
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                        self.pos += 1; // Consume ')'
-                        let body = self.parse_statement()?;
-                        Some(Statement::While(condition, Box::new(body)))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::Do => {
-                self.pos += 1; // Consume 'do'
-                let body = self.parse_statement()?;
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::While {
-                    self.pos += 1; // Consume 'while'
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
-                        self.pos += 1; // Consume '('
-                        let condition = self.parse_expression()?;
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                            self.pos += 1; // Consume ')'
-                            if self.pos < self.tokens.len()
-                                && self.tokens[self.pos] == Token::Semicolon
-                            {
-                                self.pos += 1; // Consume ';'
-                            }
-                            Some(Statement::DoWhile(Box::new(body), condition))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::Switch => {
-                self.pos += 1; // Consume 'switch'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenL {
-                    self.pos += 1; // Consume '('
-                    let expr = self.parse_expression()?;
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::ParenR {
-                        self.pos += 1; // Consume ')'
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceL {
-                            self.pos += 1; // Consume '{'
-                            let mut cases = Vec::new();
-
-                            while self.pos < self.tokens.len()
-                                && self.tokens[self.pos] != Token::BraceR
-                            {
-                                if self.pos < self.tokens.len()
-                                    && self.tokens[self.pos] == Token::Case
-                                {
-                                    self.pos += 1; // Consume 'case'
-                                    let case_expr = self.parse_expression()?;
-                                    if self.pos < self.tokens.len()
-                                        && self.tokens[self.pos] == Token::Colon
-                                    {
-                                        self.pos += 1; // Consume ':'
-                                        let mut stmts = Vec::new();
-                                        while self.pos < self.tokens.len()
-                                            && self.tokens[self.pos] != Token::Case
-                                            && self.tokens[self.pos] != Token::Default
-                                            && self.tokens[self.pos] != Token::BraceR
-                                        {
-                                            if let Some(stmt) = self.parse_statement() {
-                                                stmts.push(stmt);
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        cases.push(Case::Case(case_expr, stmts));
-                                    }
-                                } else if self.pos < self.tokens.len()
-                                    && self.tokens[self.pos] == Token::Default
-                                {
-                                    self.pos += 1; // Consume 'default'
-                                    if self.pos < self.tokens.len()
-                                        && self.tokens[self.pos] == Token::Colon
-                                    {
-                                        self.pos += 1; // Consume ':'
-                                        let mut stmts = Vec::new();
-                                        while self.pos < self.tokens.len()
-                                            && self.tokens[self.pos] != Token::Case
-                                            && self.tokens[self.pos] != Token::Default
-                                            && self.tokens[self.pos] != Token::BraceR
-                                        {
-                                            if let Some(stmt) = self.parse_statement() {
-                                                stmts.push(stmt);
-                                            } else {
-                                                break;
-                                            }
-                                        }
-                                        cases.push(Case::Default(stmts));
-                                    }
-                                } else {
-                                    break;
-                                }
-                            }
-
-                            if self.pos < self.tokens.len()
-                                && self.tokens[self.pos] == Token::BraceR
-                            {
-                                self.pos += 1; // Consume '}'
-                                Some(Statement::Switch(expr, cases))
-                            } else {
-                                None
-                            }
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::Break => {
-                self.pos += 1; // Consume 'break'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                    self.pos += 1; // Consume ';'
-                }
-                Some(Statement::Break)
-            }
-            Token::Continue => {
-                self.pos += 1; // Consume 'continue'
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                    self.pos += 1; // Consume ';'
-                }
-                Some(Statement::Continue)
-            }
-            Token::Goto => {
-                self.pos += 1; // Consume 'goto'
-                if self.pos < self.tokens.len() {
-                    if let Token::Identifier(label) = &self.tokens[self.pos] {
-                        self.pos += 1; // Consume label
-                        if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon
-                        {
-                            self.pos += 1; // Consume ';'
-                        }
-                        Some(Statement::Goto(label.clone()))
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            }
-            Token::BraceL => {
-                self.pos += 1; // Consume '{'
-                let mut stmts = Vec::new();
-                while self.pos < self.tokens.len() && self.tokens[self.pos] != Token::BraceR {
-                    if let Some(stmt) = self.parse_statement() {
-                        stmts.push(stmt);
-                    } else {
-                        break;
-                    }
-                }
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::BraceR {
-                    self.pos += 1; // Consume '}'
-                }
-                Some(Statement::Block(stmts))
-            }
-            Token::Int
-            | Token::Float
-            | Token::Char
-            | Token::Double
-            | Token::Long
-            | Token::Short => {
-                // Variable declaration
-                let _var_type = match &self.tokens[self.pos] {
-                    Token::Int => {
-                        self.pos += 1;
-                        "int".to_string()
-                    }
-                    Token::Float => {
-                        self.pos += 1;
-                        "float".to_string()
-                    }
-                    Token::Char => {
-                        self.pos += 1;
-                        "char".to_string()
-                    }
-                    Token::Double => {
-                        self.pos += 1;
-                        "double".to_string()
-                    }
-                    Token::Long => {
-                        self.pos += 1;
-                        "long".to_string()
-                    }
-                    Token::Short => {
-                        self.pos += 1;
-                        "short".to_string()
-                    }
-                    _ => return None,
-                };
-
-                let var_name = match &self.tokens[self.pos] {
-                    Token::Identifier(id) => {
-                        self.pos += 1;
-                        id.clone()
-                    }
-                    _ => return None,
-                };
-
-                if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                    self.pos += 1; // Consume ';'
-                }
-
-                Some(Statement::Declaration(VariableDeclaration {
-                    storage_class: None,
-                    type_qualifiers: vec![],
-                    type_specifier: TypeSpecifier::Int, // Default to int for now
-                    declarator: Declarator {
-                        name: var_name,
-                        pointer_depth: 0,
-                        array_sizes: vec![],
-                        function_params: None,
-                    },
-                    initializer: None,
-                }))
-            }
-            _ => {
-                // Try to parse as expression statement
-                if let Some(expr) = self.parse_expression() {
-                    if self.pos < self.tokens.len() && self.tokens[self.pos] == Token::Semicolon {
-                        self.pos += 1; // Consume ';'
-                    }
-                    Some(Statement::Expression(expr))
-                } else {
-                    None
-                }
-            }
-        }
+        Ok(())
     }
 }
+
