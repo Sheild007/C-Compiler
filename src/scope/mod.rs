@@ -153,7 +153,8 @@ impl ScopeAnalyzer{
     pub fn lookup_symbol(&self,name:&str) -> Option<Symbol>{
         self.current_scope.lookup(name);
     }
-    
+
+    //verify whether a variable name is declared in any visible scope before it is used.
     pub fn check_variable_access(&mut self, name:&str)-> Result<(),ScopeError>{
         match self.lookup_symbol(name){
             Some(_symbol)==>Ok(()),
@@ -165,5 +166,25 @@ impl ScopeAnalyzer{
         }
     }
 
-    
+    //verify whether a Fucntion is declared in any visible scope before it is used.
+    pub fn check_fucntion_call(&mut self, name:&str)->Result<()>, ScopeError>{
+        match self.lookup_symbol(name){
+            Some(symbol)=> match &symbol.kind{
+                SymbolKind::Function{..}=>Ok(()),
+                _ =>{
+                    let error=ScopeError::UndefinedFunctionCalled(name.to_string);
+                    self.errors.push(error);
+                    Err(error)
+                }
+            } ,
+            None =>{
+                    let error=ScopeError::UndefinedFunctionCalled(name.to_string);
+                    self.errors.push(error);
+                    Err(error)
+
+            }
+        }
+    }
+
+    pun fn analyze_translation_unit()
 }
