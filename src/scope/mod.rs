@@ -186,5 +186,31 @@ impl ScopeAnalyzer{
         }
     }
 
-    pun fn analyze_translation_unit()
+    pub fn analyze_translation_unit(&mut self, unit:TranslationUnit)->Result<(),Vec<ScopeError>>{
+        for external_decl in &unit.external_declarations{
+            self.analyze_external_declaration(external_decl);
+        }
+
+        if self.errors.is_empty(){
+            Ok(())
+        }
+        else{
+            Err(self.errors.clone())
+        }
+    }
+
+    fn analyze_external_declaration(&mut self, decl:ExternalDeclaration){
+        match decl{
+            ExternalDeclaration::Variable(var_decl)=>{
+                self.analyze_variable_declaration(var_decl);
+            }
+            ExternalDeclaration::Fucntion(func_def)=>{
+                self.analyze_function_definition(func_def);
+            }
+            ExternalDeclaration::FunctionDeclaration(func_decl)=>{
+                self.analyze_function_declaration(func_decl);
+            }
+        }
+    }
+    
 }
