@@ -142,6 +142,18 @@ impl ScopeAnalyzer{
         self.current_scope.lookup(name)
     }
 
+    pub fn lookup_symbol_from_global(&self, name: &str) -> Option<Symbol> {
+        self.global_scope.lookup(name)
+    }
+
+    pub fn get_global_scope(&self) -> &Rc<ScopeNode> {
+        &self.global_scope
+    }
+
+    pub fn get_all_scopes(&self) -> &[Rc<ScopeNode>] {
+        &self.all_scopes
+    }
+
     //verify whether a variable name is declared in any visible scope before it is used.
     pub fn check_variable_access(&mut self, name: &str) -> Result<(), ScopeError> {
         match self.lookup_symbol(name) {
