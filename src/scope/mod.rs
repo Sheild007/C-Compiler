@@ -35,26 +35,20 @@ pub struct Symbol {
 }
 
 #[derive(Debug)]
-pub struct ScopeNode{
-
-    pub symbols: RefCell<HashMap<String,Symbol>>,
+pub struct ScopeNode {
+    pub symbols: RefCell<HashMap<String, Symbol>>,
     pub parent: Option<Rc<ScopeNode>>,
-    pub scope_level: usize
+    pub scope_level: usize,
 }
 
-impl ScopeNode{
-
-    pub fn new(parent: Option<Rc<ScopeNode>>) -> Self{
-
-        let scope_level =parent.as_ref().map(|p| p.scope_level +1).unwrap_or(0);
-        ScopeNode{
-
-            symbols: RefCell:: new (HashMap::new()),
+impl ScopeNode {
+    pub fn new(parent: Option<Rc<ScopeNode>>) -> Self {
+        let scope_level = parent.as_ref().map(|p| p.scope_level + 1).unwrap_or(0);
+        ScopeNode {
+            symbols: RefCell::new(HashMap::new()),
             parent,
             scope_level,
         }
-
-        
     }
 
     pub fn lookup(&self, name: &str) -> Option<Symbol> {
@@ -76,20 +70,14 @@ impl ScopeNode{
     }
 }
 
-
-pub struct ScopeAnalyzer{
-
+pub struct ScopeAnalyzer {
     current_scope: Rc<ScopeNode>,
-    global_scope : Rc<ScopeNode>,
+    global_scope: Rc<ScopeNode>,
     errors: Vec<ScopeError>,
     all_scopes: Vec<Rc<ScopeNode>>,
 }
 
-
-
-
-impl ScopeAnalyzer{
-
+impl ScopeAnalyzer {
     pub fn new() -> Self {
         let global_scope = Rc::new(ScopeNode::new(None));
         let mut all_scopes = Vec::new();
@@ -109,33 +97,31 @@ impl ScopeAnalyzer{
         self.current_scope = new_scope;
     }
 
-    pub fn exit_scope(&mut self){
-
-        if let Some(parent)= &self.current_scope.parent{
-            self.current_scope=parent.clone();
+    pub fn exit_scope(&mut self) {
+        if let Some(parent) = &self.current_scope.parent {
+            self.current_scope = parent.clone();
         }
     }
 
-    pub fn declare_symbol(&mut self, name:String, kind: SymbolKind)->Result<(),ScopeError>{
-      //check for redefination in current scope_level
-        if self.current_scope.lookup_current_scope(&name).is_some(){
-            let error = match kind{
-                SymbolKind::Function{..}=> ScopeError::FunctionPrototypeRedefinition(name),
-                _=> ScopeError::VariableRedefinition(name),
+    pub fn declare_symbol(&mut self, name: String, kind: SymbolKind) -> Result<(), ScopeError> {
+        //check for redefination in current scope_level
+        if self.current_scope.lookup_current_scope(&name).is_some() {
+            let error = match kind {
+                SymbolKind::Function { .. } => ScopeError::FunctionPrototypeRedefinition(name),
+                _ => ScopeError::VariableRedefinition(name),
             };
             self.errors.push(error.clone());
             return Err(error);
         }
-    
-         let symbol=Symbol{
-        name:name.clone(),
-        kind,
-        scope_level:self.current_scope.scope_level,
+
+        let symbol = Symbol {
+            name: name.clone(),
+            kind,
+            scope_level: self.current_scope.scope_level,
         };
 
-        self.current_scope.insert_symbol(name,symbol);
+        self.current_scope.insert_symbol(name, symbol);
         Ok(())
-
     }
 
     pub fn lookup_symbol(&self, name: &str) -> Option<Symbol> {
@@ -185,10 +171,13 @@ impl ScopeAnalyzer{
         }
     }
 
-    pub fn analyze_translation_unit(&mut self, unit: &TranslationUnit) -> Result<(), Vec<ScopeError>> {
+    pub fn analyze_translation_unit(
+        &mut self,
+        unit: &TranslationUnit,
+    ) -> Result<(), Vec<ScopeError>> {
         // Check if stdio.h is included and add printf as built-in
         self.add_builtin_functions_from_includes(&unit.preprocessor_list);
-        
+
         for external_decl in &unit.external_declarations {
             self.analyze_external_declaration(external_decl);
         }
@@ -261,7 +250,7 @@ impl ScopeAnalyzer{
                 }
             }
         }
-    } 
+    }
     fn analyze_function_declaration(&mut self, func_decl: &FunctionDeclaration) {
         let symbol_kind = SymbolKind::Function {
             return_type: func_decl.return_type.clone(),
@@ -269,12 +258,9 @@ impl ScopeAnalyzer{
             is_defined: false,
         };
 
-        if let Err(_) = self.declare_symbol(func_decl.name.clone(), symbol_kind) {
-         
-        }
+        if let Err(_) = self.declare_symbol(func_decl.name.clone(), symbol_kind) {}
     }
     fn analyze_function_definition(&mut self, func_def: &FunctionDefinition) {
-        
         let symbol_kind = SymbolKind::Function {
             return_type: func_def.return_type.clone(),
             parameters: func_def.parameters.clone(),
@@ -282,7 +268,6 @@ impl ScopeAnalyzer{
         };
 
         if let Err(_) = self.declare_symbol(func_def.name.clone(), symbol_kind) {
-            
             if let Some(existing) = self.lookup_symbol(&func_def.name) {
                 if let SymbolKind::Function {
                     is_defined: true, ..
@@ -293,10 +278,8 @@ impl ScopeAnalyzer{
             }
         }
 
-      
         self.enter_scope();
 
-        
         for param in &func_def.parameters {
             let param_kind = SymbolKind::Parameter {
                 param_type: param.param_type.clone(),
@@ -306,14 +289,12 @@ impl ScopeAnalyzer{
             }
         }
 
-       
         for stmt in &func_def.body {
             self.analyze_statement(stmt);
         }
 
         // Exit function scope
         self.exit_scope();
-    
     }
     fn analyze_expression(&mut self, expr: &Expression) {
         match expr {
@@ -435,7 +416,6 @@ impl ScopeAnalyzer{
     pub fn print_symbol_table(&self) {
         println!("--- Symbol Table (All Scopes) ---");
 
-       
         for scope in &self.all_scopes {
             let scope_name = match scope.scope_level {
                 0 => "Global".to_string(),
@@ -479,7 +459,4 @@ impl ScopeAnalyzer{
             println!();
         }
     }
-
-
-
 }

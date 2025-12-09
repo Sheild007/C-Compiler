@@ -1,3 +1,4 @@
+mod ir;
 mod lexer_manual;
 mod lexer_regex;
 mod parser;
@@ -268,12 +269,13 @@ fn main() {
                     scope_analyzer.print_symbol_table();
                 }
             }
-            
+
             // Perform type checking regardless of scope analysis errors
             // (Type checking can still find errors even if scope analysis had issues)
             println!("\n--- Type Checking ---");
             let mut type_checker = type_checker::TypeChecker::new(scope_analyzer, source_lines);
-            match type_checker.check_translation_unit(&ast) {
+            let type_check_result = type_checker.check_translation_unit(&ast);
+            match &type_check_result {
                 Ok(()) => {
                     println!("Type checking completed successfully - no errors found!");
                 }
@@ -291,57 +293,175 @@ fn main() {
                         };
                         match type_error.error {
                             type_checker::TypeChkError::ErroneousVarDecl => {
-                                println!("  ERROR (line {}): Erroneous variable declaration{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Erroneous variable declaration{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::FnCallParamCount => {
-                                println!("  ERROR (line {}): Function call parameter count mismatch{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Function call parameter count mismatch{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::FnCallParamType => {
-                                println!("  ERROR (line {}): Function call parameter type mismatch{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Function call parameter type mismatch{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::ErroneousReturnType => {
-                                println!("  ERROR (line {}): Erroneous return type{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Erroneous return type{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::ExpressionTypeMismatch => {
-                                println!("  ERROR (line {}): Expression type mismatch{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Expression type mismatch{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::ExpectedBooleanExpression => {
-                                println!("  ERROR (line {}): Expected boolean expression{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Expected boolean expression{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::ErroneousBreak => {
-                                println!("  ERROR (line {}): Break statement outside of loop{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Break statement outside of loop{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::NonBooleanCondStmt => {
-                                println!("  ERROR (line {}): Non-boolean condition in control statement{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Non-boolean condition in control statement{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::EmptyExpression => {
-                                println!("  ERROR (line {}): Empty expression{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Empty expression{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::AttemptedBoolOpOnNonBools => {
-                                println!("  ERROR (line {}): Attempted boolean operation on non-boolean types{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Attempted boolean operation on non-boolean types{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::AttemptedBitOpOnNonNumeric => {
-                                println!("  ERROR (line {}): Attempted bitwise operation on non-numeric types{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Attempted bitwise operation on non-numeric types{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::AttemptedShiftOnNonInt => {
-                                println!("  ERROR (line {}): Attempted shift operation on non-integer types{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Attempted shift operation on non-integer types{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::AttemptedAddOpOnNonNumeric => {
-                                println!("  ERROR (line {}): Attempted arithmetic operation on non-numeric types{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Attempted arithmetic operation on non-numeric types{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::AttemptedExponentiationOfNonNumeric => {
-                                println!("  ERROR (line {}): Attempted exponentiation on non-numeric types{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Attempted exponentiation on non-numeric types{}",
+                                    line_label, context_suffix
+                                );
                             }
                             type_checker::TypeChkError::ReturnStmtNotFound => {
-                                println!("  ERROR (line {}): Return statement not found in non-void function{}", line_label, context_suffix);
+                                println!(
+                                    "  ERROR (line {}): Return statement not found in non-void function{}",
+                                    line_label, context_suffix
+                                );
                             }
                         }
                     }
                 }
             }
+
+            if type_check_result.is_ok() {
+                println!("\n--- IR Generation ---");
+                let mut ir_generator = ir::IrGenerator::new();
+                match ir_generator.generate(&ast) {
+                    Ok(program_ir) => {
+                        println!("IR generation completed successfully!");
+                        print_program_ir(&program_ir);
+                    }
+                    Err(errors) => {
+                        println!("IR generation found {} error(s):", errors.len());
+                        for error in errors {
+                            println!("  ERROR: {}", error);
+                        }
+                    }
+                }
+            } else {
+                println!("Skipping IR generation due to previous type checking errors.");
+            }
         }
         Err(error) => {
             println!("Parse Error: {:?}", error);
         }
+    }
+}
+
+fn print_program_ir(program_ir: &ir::ProgramIr) {
+    println!("Generating IR...");
+    
+    // Print global variables
+    for global in &program_ir.globals {
+        match &global.initializer {
+            Some(value) => println!("global @{} = {} {}", global.name, value.type_name(), value),
+            None => println!("global @{} = i32 0", global.name),
+        }
+    }
+    
+    // Print functions
+    for function in &program_ir.functions {
+        // Function header: fun @name(type %param, ...) -> type
+        let params_str = if function.params.is_empty() {
+            String::new()
+        } else {
+            function.params
+                .iter()
+                .map(|p| format!("i32 %{}", p))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        println!("fun @{}({}) -> i32", function.name, params_str);
+        
+        // Collect params for call instructions
+        let mut pending_params: Vec<String> = Vec::new();
+        
+        for instr in &function.instructions {
+            match instr {
+                ir::Instruction::Param(operand) => {
+                    pending_params.push(format!("{}", operand));
+                }
+                ir::Instruction::Call { dst, name, arg_count: _ } => {
+                    let args = pending_params.join(", ");
+                    pending_params.clear();
+                    if let Some(target) = dst {
+                        println!("    {} = call @{}({})", target, name, args);
+                    } else {
+                        println!("    call @{}({})", name, args);
+                    }
+                }
+                ir::Instruction::Label(label) => {
+                    println!("{}:", label);
+                }
+                _ => {
+                    println!("    {}", instr);
+                }
+            }
+        }
+        println!("end");
     }
 }

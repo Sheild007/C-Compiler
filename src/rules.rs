@@ -1,5 +1,5 @@
-use regex::Regex;
 use lazy_static::lazy_static;
+use regex::Regex;
 
 #[derive(Debug)]
 #[allow(dead_code)]
@@ -78,7 +78,7 @@ lazy_static! {
             regex: Regex::new(r"^/\*.*?\*/").unwrap(),
             token_type: |s| Token::Comment(s.to_string()),
         },
-        
+
         // ===== Keywords =====
         Rule { regex: Regex::new(r"^\bint\b").unwrap(),    token_type: |_| Token::KeywordInt },
         Rule { regex: Regex::new(r"^\bfloat\b").unwrap(),  token_type: |_| Token::KeywordFloat },

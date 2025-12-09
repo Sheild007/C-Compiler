@@ -160,14 +160,20 @@ impl Parser {
     fn parse_preprocessor_directive(&mut self) -> Result<PreprocessorDirective, ParseError> {
         match self.next() {
             Some(Token::Preprocessor(directive)) => {
-                let directive_type = directive.strip_prefix('#').unwrap_or(&directive).to_string();
+                let directive_type = directive
+                    .strip_prefix('#')
+                    .unwrap_or(&directive)
+                    .to_string();
                 match directive_type.as_str() {
                     "include" => self.parse_include(),
                     "define" => self.parse_define(),
                     "ifdef" => self.parse_ifdef(),
                     "ifndef" => self.parse_ifndef(),
                     "endif" => Ok(PreprocessorDirective::Endif),
-                    _ => Err(ParseError::UnexpectedToken(format!("Unknown directive: {}", directive_type))),
+                    _ => Err(ParseError::UnexpectedToken(format!(
+                        "Unknown directive: {}",
+                        directive_type
+                    ))),
                 }
             }
             _ => Err(ParseError::UnexpectedEOF),
@@ -196,7 +202,9 @@ impl Parser {
                 Err(ParseError::UnexpectedEOF)
             }
         } else {
-            Err(ParseError::UnexpectedToken("Expected include path".to_string()))
+            Err(ParseError::UnexpectedToken(
+                "Expected include path".to_string(),
+            ))
         }
     }
 
@@ -362,26 +370,46 @@ impl Parser {
     // ============================================
 
     fn parse_variable_declaration(&mut self) -> Option<VariableDeclaration> {
+        let saved_pos = self.pos;
         let type_specifier = self.parse_type_specifier()?;
         self.skip_whitespace();
 
         let name = match self.next() {
             Some(Token::Identifier(id)) => id,
-            _ => return None,
+            _ => {
+                self.pos = saved_pos;
+                return None;
+            }
         };
 
         // Parse initializer if present
         let mut initializer = None;
+        let mut has_error = false;
         if self.consume(&Token::AssignOp) {
             if let Some(expr) = self.parse_expression() {
                 initializer = Some(Initializer {
                     kind: InitializerKind::Assignment(expr),
                 });
+            } else {
+                eprintln!("Parse Error: Invalid initializer expression for variable '{}'", name);
+                has_error = true;
+                // Skip to semicolon
+                while self.pos < self.tokens.len() {
+                    if self.peek() == Some(&Token::Semicolon) {
+                        break;
+                    }
+                    self.pos += 1;
+                }
             }
         }
 
         // Consume semicolon
         if !self.consume(&Token::Semicolon) {
+            eprintln!("Parse Error: Missing semicolon after declaration of variable '{}'", name);
+            return None;
+        }
+
+        if has_error {
             return None;
         }
 
@@ -408,6 +436,7 @@ impl Parser {
             Some(Token::Void) => Some(TypeSpecifier::Void),
             Some(Token::Long) => Some(TypeSpecifier::Long),
             Some(Token::Short) => Some(TypeSpecifier::Short),
+            Some(Token::String) => Some(TypeSpecifier::String),
             _ => None,
         }
     }
@@ -421,6 +450,7 @@ impl Parser {
             Some(Token::Void) => Some("void".to_string()),
             Some(Token::Long) => Some("long".to_string()),
             Some(Token::Short) => Some("short".to_string()),
+            Some(Token::String) => Some("string".to_string()),
             _ => None,
         }
     }
@@ -597,11 +627,15 @@ impl Parser {
                 break;
             }
 
+            let saved_pos = self.pos;
             if let Some(stmt) = self.parse_statement() {
                 statements.push(stmt);
             } else {
-                // Skip unrecognized token
-                self.pos += 1;
+                // Only skip token if we haven't moved at all (completely unrecognized)
+                if self.pos == saved_pos {
+                    self.pos += 1;
+                }
+                // Otherwise, parsing already advanced past the problematic code
             }
         }
 
@@ -618,12 +652,8 @@ impl Parser {
             Some(Token::For) => self.parse_for_statement(),
             Some(Token::Break) => self.parse_break_statement(),
             Some(Token::BraceL) => self.parse_block_statement(),
-            Some(Token::Int)
-            | Some(Token::Float)
-            | Some(Token::Char)
-            | Some(Token::Double)
-            | Some(Token::Long)
-            | Some(Token::Short) => self.parse_declaration_statement(),
+            Some(Token::Int) | Some(Token::Float) | Some(Token::Char) | Some(Token::Double)
+            | Some(Token::Long) | Some(Token::Short) | Some(Token::String) => self.parse_declaration_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -900,7 +930,8 @@ impl Parser {
 
         while self.consume(&Token::BitAndOp) {
             if let Some(right) = self.parse_equality_expression() {
-                left = Expression::BinaryOp(Box::new(left), BinaryOperator::BitAnd, Box::new(right));
+                left =
+                    Expression::BinaryOp(Box::new(left), BinaryOperator::BitAnd, Box::new(right));
             } else {
                 return None;
             }
@@ -1069,13 +1100,19 @@ impl Parser {
                 Token::BitAndOp => {
                     self.pos += 1;
                     if let Some(expr) = self.parse_unary_expression() {
-                        return Some(Expression::UnaryOp(UnaryOperator::AddressOf, Box::new(expr)));
+                        return Some(Expression::UnaryOp(
+                            UnaryOperator::AddressOf,
+                            Box::new(expr),
+                        ));
                     }
                 }
                 Token::Mult => {
                     self.pos += 1;
                     if let Some(expr) = self.parse_unary_expression() {
-                        return Some(Expression::UnaryOp(UnaryOperator::Dereference, Box::new(expr)));
+                        return Some(Expression::UnaryOp(
+                            UnaryOperator::Dereference,
+                            Box::new(expr),
+                        ));
                     }
                 }
                 _ => {}
@@ -1093,25 +1130,57 @@ impl Parser {
                 Some(Token::ParenL) => {
                     self.pos += 1;
                     let mut args = Vec::new();
+                    let mut has_error = false;
+                    
+                    // Get function name for error messages
+                    let func_name = if let Expression::Identifier(ref name) = expr {
+                        name.clone()
+                    } else {
+                        "unknown".to_string()
+                    };
 
                     if self.peek() != Some(&Token::ParenR) {
+                        // Check for empty argument (leading comma)
+                        if self.peek() == Some(&Token::Comma) {
+                            eprintln!("Parse Error: Empty argument in function call '{}' - unexpected comma", func_name);
+                            has_error = true;
+                        }
+                        
                         if let Some(arg) = self.parse_expression() {
                             args.push(arg);
+                        } else if !has_error {
+                            eprintln!("Parse Error: Expected expression in function call '{}'", func_name);
+                            has_error = true;
                         }
 
                         while self.consume(&Token::Comma) {
+                            // Check for empty argument (consecutive commas)
+                            if self.peek() == Some(&Token::Comma) || self.peek() == Some(&Token::ParenR) {
+                                eprintln!("Parse Error: Empty argument in function call '{}' - missing expression after comma", func_name);
+                                has_error = true;
+                                continue;
+                            }
+                            
                             if let Some(arg) = self.parse_expression() {
                                 args.push(arg);
+                            } else {
+                                eprintln!("Parse Error: Expected expression after comma in function call '{}'", func_name);
+                                has_error = true;
                             }
                         }
                     }
 
                     if self.consume(&Token::ParenR) {
+                        if has_error {
+                            // Return None for malformed function call
+                            return None;
+                        }
                         if let Expression::Identifier(name) = expr {
                             expr = Expression::FunctionCall(name, args);
                         }
                     } else {
-                        break;
+                        eprintln!("Parse Error: Missing closing ')' in function call '{}'", func_name);
+                        return None;
                     }
                 }
                 Some(Token::BracketL) => {
@@ -1185,26 +1254,41 @@ impl Parser {
         }
 
         // Check for missing identifier after type: int = 5;
-        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double | Token::Long | Token::Short | Token::Void),
-                Some(Token::AssignOp),
-                Some(Token::IntLit(_) | Token::FloatLit(_) | Token::StringLit(_) | Token::BoolLit(_))) =
-            (self.peek(), self.peek_at(1), self.peek_at(2))
+        if let (
+            Some(
+                Token::Int
+                | Token::Float
+                | Token::Char
+                | Token::Double
+                | Token::Long
+                | Token::Short
+                | Token::Void,
+            ),
+            Some(Token::AssignOp),
+            Some(Token::IntLit(_) | Token::FloatLit(_) | Token::StringLit(_) | Token::BoolLit(_)),
+        ) = (self.peek(), self.peek_at(1), self.peek_at(2))
         {
             return Err(ParseError::ExpectedIdentifier);
         }
 
         // Check for missing type specifier: x = 5;
-        if let (Some(Token::Identifier(_)), Some(Token::AssignOp)) = (self.peek(), self.peek_at(1)) {
+        if let (Some(Token::Identifier(_)), Some(Token::AssignOp)) = (self.peek(), self.peek_at(1))
+        {
             return Err(ParseError::ExpectedTypeToken);
         }
 
         // Check for missing value after assignment: int x = ;
-        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double),
-                Some(Token::Identifier(_)),
-                Some(Token::AssignOp),
-                Some(Token::Semicolon)) =
-            (self.peek(), self.peek_at(1), self.peek_at(2), self.peek_at(3))
-        {
+        if let (
+            Some(Token::Int | Token::Float | Token::Char | Token::Double),
+            Some(Token::Identifier(_)),
+            Some(Token::AssignOp),
+            Some(Token::Semicolon),
+        ) = (
+            self.peek(),
+            self.peek_at(1),
+            self.peek_at(2),
+            self.peek_at(3),
+        ) {
             if matches!(self.peek(), Some(Token::Int)) {
                 return Err(ParseError::ExpectedIntLit);
             } else if matches!(self.peek(), Some(Token::Float)) {
@@ -1215,18 +1299,26 @@ impl Parser {
         }
 
         // Check for missing operand after operator: int x = 5 + ;
-        if let (Some(Token::Int | Token::Float | Token::Char | Token::Double),
-                Some(Token::Identifier(_)),
-                Some(Token::AssignOp),
-                Some(Token::IntLit(_) | Token::FloatLit(_)),
-                Some(Token::Plus | Token::Minus | Token::Mult | Token::Div),
-                Some(Token::Semicolon)) =
-            (self.peek(), self.peek_at(1), self.peek_at(2), self.peek_at(3), self.peek_at(4), self.peek_at(5))
-        {
-            return Err(ParseError::FailedToFindToken("Missing operand after operator".to_string()));
+        if let (
+            Some(Token::Int | Token::Float | Token::Char | Token::Double),
+            Some(Token::Identifier(_)),
+            Some(Token::AssignOp),
+            Some(Token::IntLit(_) | Token::FloatLit(_)),
+            Some(Token::Plus | Token::Minus | Token::Mult | Token::Div),
+            Some(Token::Semicolon),
+        ) = (
+            self.peek(),
+            self.peek_at(1),
+            self.peek_at(2),
+            self.peek_at(3),
+            self.peek_at(4),
+            self.peek_at(5),
+        ) {
+            return Err(ParseError::FailedToFindToken(
+                "Missing operand after operator".to_string(),
+            ));
         }
 
         Ok(())
     }
 }
-

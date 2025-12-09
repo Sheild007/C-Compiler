@@ -1,5 +1,3 @@
-
-
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum Token {
@@ -70,7 +68,7 @@ pub fn lex_manual(input: &str) -> Vec<Token> {
             continue;
         }
         // Comments
-        if c == '/' && i+1 < chars.len() && chars[i+1] == '/' {
+        if c == '/' && i + 1 < chars.len() && chars[i + 1] == '/' {
             let start = i;
             i += 2;
             while i < chars.len() && chars[i] != '\n' {
@@ -162,34 +160,96 @@ pub fn lex_manual(input: &str) -> Vec<Token> {
             continue;
         }
         // Operators and delimiters
-        let two = if i+1 < chars.len() { format!("{}{}", chars[i], chars[i+1]) } else { String::new() };
+        let two = if i + 1 < chars.len() {
+            format!("{}{}", chars[i], chars[i + 1])
+        } else {
+            String::new()
+        };
         match two.as_str() {
-            "==" => { tokens.push(Token::EqualsOp); i += 2; continue; },
-            "!=" => { tokens.push(Token::NotEqualsOp); i += 2; continue; },
-            "<=" => { tokens.push(Token::LessEqOp); i += 2; continue; },
-            ">=" => { tokens.push(Token::GreaterEqOp); i += 2; continue; },
-            "&&" => { tokens.push(Token::AndOp); i += 2; continue; },
-            "||" => { tokens.push(Token::OrOp); i += 2; continue; },
+            "==" => {
+                tokens.push(Token::EqualsOp);
+                i += 2;
+                continue;
+            }
+            "!=" => {
+                tokens.push(Token::NotEqualsOp);
+                i += 2;
+                continue;
+            }
+            "<=" => {
+                tokens.push(Token::LessEqOp);
+                i += 2;
+                continue;
+            }
+            ">=" => {
+                tokens.push(Token::GreaterEqOp);
+                i += 2;
+                continue;
+            }
+            "&&" => {
+                tokens.push(Token::AndOp);
+                i += 2;
+                continue;
+            }
+            "||" => {
+                tokens.push(Token::OrOp);
+                i += 2;
+                continue;
+            }
             _ => {}
         }
         match c {
-            '=' => { tokens.push(Token::AssignOp); },
-            '<' => { tokens.push(Token::LessOp); },
-            '>' => { tokens.push(Token::GreaterOp); },
-            '&' => { tokens.push(Token::BitAndOp); },
-            '|' => { tokens.push(Token::BitOrOp); },
-            '*' => { tokens.push(Token::Identifier("*".to_string())); }, // Add star support
-            '(' => { tokens.push(Token::ParenL); },
-            ')' => { tokens.push(Token::ParenR); },
-            '{' => { tokens.push(Token::BraceL); },
-            '}' => { tokens.push(Token::BraceR); },
-            '[' => { tokens.push(Token::BracketL); },
-            ']' => { tokens.push(Token::BracketR); },
-            ',' => { tokens.push(Token::Comma); },
-            ';' => { tokens.push(Token::Semicolon); },
-            ':' => { tokens.push(Token::Colon); },
-            '"' => { tokens.push(Token::Quotes); },
-            _ => { tokens.push(Token::Error(format!("Unknown char: {}", c))); },
+            '=' => {
+                tokens.push(Token::AssignOp);
+            }
+            '<' => {
+                tokens.push(Token::LessOp);
+            }
+            '>' => {
+                tokens.push(Token::GreaterOp);
+            }
+            '&' => {
+                tokens.push(Token::BitAndOp);
+            }
+            '|' => {
+                tokens.push(Token::BitOrOp);
+            }
+            '*' => {
+                tokens.push(Token::Identifier("*".to_string()));
+            } // Add star support
+            '(' => {
+                tokens.push(Token::ParenL);
+            }
+            ')' => {
+                tokens.push(Token::ParenR);
+            }
+            '{' => {
+                tokens.push(Token::BraceL);
+            }
+            '}' => {
+                tokens.push(Token::BraceR);
+            }
+            '[' => {
+                tokens.push(Token::BracketL);
+            }
+            ']' => {
+                tokens.push(Token::BracketR);
+            }
+            ',' => {
+                tokens.push(Token::Comma);
+            }
+            ';' => {
+                tokens.push(Token::Semicolon);
+            }
+            ':' => {
+                tokens.push(Token::Colon);
+            }
+            '"' => {
+                tokens.push(Token::Quotes);
+            }
+            _ => {
+                tokens.push(Token::Error(format!("Unknown char: {}", c)));
+            }
         }
         i += 1;
     }

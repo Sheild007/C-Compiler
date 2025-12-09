@@ -1,7 +1,7 @@
 // type_checker/mod.rs: Type checking implementation for MiniC compiler
 
 use crate::parser::ast::*;
-use crate::scope::{ScopeAnalyzer, SymbolKind, ScopeNode};
+use crate::scope::{ScopeAnalyzer, ScopeNode, SymbolKind};
 use std::rc::Rc;
 
 #[derive(Debug, Clone)]
@@ -32,8 +32,8 @@ pub enum Type {
     Short,
     Long,
     Void,
-    Bool, // For boolean expressions
-    String, // For string literals (char arrays/pointers)
+    Bool,    // For boolean expressions
+    String,  // For string literals (char arrays/pointers)
     Unknown, // For error cases
 }
 
@@ -94,7 +94,7 @@ impl TypeChecker {
 
     fn check_variable_declaration(&mut self, var_decl: &VariableDeclaration) {
         let var_type = self.type_specifier_to_type(&var_decl.type_specifier);
-        
+
         // Check if variable type is valid
         if var_type == Type::Unknown {
             self.record_error(TypeChkError::ErroneousVarDecl, &var_decl.declarator.name);
@@ -105,7 +105,10 @@ impl TypeChecker {
             if let Some(init_type) = self.check_initializer(initializer) {
                 // Check if initializer type is compatible with variable type
                 if init_type != Type::Unknown && !self.are_types_compatible(&var_type, &init_type) {
-                    self.record_error(TypeChkError::ExpressionTypeMismatch, &var_decl.declarator.name);
+                    self.record_error(
+                        TypeChkError::ExpressionTypeMismatch,
+                        &var_decl.declarator.name,
+                    );
                 }
             }
             // If check_initializer returns None, error was already reported in check_expression
@@ -114,9 +117,7 @@ impl TypeChecker {
 
     fn check_initializer(&mut self, initializer: &Initializer) -> Option<Type> {
         match &initializer.kind {
-            InitializerKind::Assignment(expr) => {
-                self.check_expression(expr)
-            }
+            InitializerKind::Assignment(expr) => self.check_expression(expr),
             InitializerKind::List(initializers) => {
                 // For list initializers, check all elements
                 for init in initializers {
@@ -129,9 +130,7 @@ impl TypeChecker {
                     None
                 }
             }
-            InitializerKind::Designated(_designator, init) => {
-                self.check_initializer(init)
-            }
+            InitializerKind::Designated(_designator, init) => self.check_initializer(init),
         }
     }
 
@@ -142,14 +141,19 @@ impl TypeChecker {
 
         // Find function scope from all_scopes (function scope has level 1 and contains all parameters)
         // The function scope can contain parameters AND variables declared in the function body
-        let function_scope = self.scope_analyzer.get_all_scopes()
+        let function_scope = self
+            .scope_analyzer
+            .get_all_scopes()
             .iter()
             .find(|scope| {
                 scope.scope_level == 1 && {
                     let symbols = scope.symbols.borrow();
                     // Check if this scope contains all the function's parameters
                     // (it can also contain other symbols like variables)
-                    func_def.parameters.iter().all(|param| symbols.contains_key(&param.name))
+                    func_def
+                        .parameters
+                        .iter()
+                        .all(|param| symbols.contains_key(&param.name))
                 }
             })
             .cloned();
@@ -194,7 +198,9 @@ impl TypeChecker {
                 // Get variable type from symbol table
                 if let Some(var_type) = self.get_variable_type(var_name) {
                     if let Some(expr_type) = self.check_expression(expr) {
-                        if expr_type != Type::Unknown && !self.are_types_compatible(&var_type, &expr_type) {
+                        if expr_type != Type::Unknown
+                            && !self.are_types_compatible(&var_type, &expr_type)
+                        {
                             self.record_error(TypeChkError::ExpressionTypeMismatch, var_name);
                         }
                     }
@@ -214,7 +220,9 @@ impl TypeChecker {
                         // Non-void function must return a value
                         if let Some(expr) = expr_opt {
                             if let Some(expr_type) = self.check_expression(expr) {
-                                if expr_type != Type::Unknown && !self.are_types_compatible(&ret_type_clone, &expr_type) {
+                                if expr_type != Type::Unknown
+                                    && !self.are_types_compatible(&ret_type_clone, &expr_type)
+                                {
                                     self.record_error(TypeChkError::ErroneousReturnType, "return");
                                 }
                             }
@@ -235,11 +243,17 @@ impl TypeChecker {
                 let saved_scope = self.current_scope.clone();
                 if let Some(current) = &self.current_scope {
                     // Find a child scope (one level deeper)
-                    let child_scope = self.scope_analyzer.get_all_scopes()
+                    let child_scope = self
+                        .scope_analyzer
+                        .get_all_scopes()
                         .iter()
                         .find(|scope| {
-                            scope.scope_level == current.scope_level + 1 &&
-                            scope.parent.as_ref().map(|p| Rc::ptr_eq(p, current)).unwrap_or(false)
+                            scope.scope_level == current.scope_level + 1
+                                && scope
+                                    .parent
+                                    .as_ref()
+                                    .map(|p| Rc::ptr_eq(p, current))
+                                    .unwrap_or(false)
                         })
                         .cloned();
                     if let Some(child) = child_scope {
@@ -294,11 +308,17 @@ impl TypeChecker {
                 // Enter for loop scope
                 let saved_scope = self.current_scope.clone();
                 if let Some(current) = &self.current_scope {
-                    let for_scope = self.scope_analyzer.get_all_scopes()
+                    let for_scope = self
+                        .scope_analyzer
+                        .get_all_scopes()
                         .iter()
                         .find(|scope| {
-                            scope.scope_level == current.scope_level + 1 &&
-                            scope.parent.as_ref().map(|p| Rc::ptr_eq(p, current)).unwrap_or(false)
+                            scope.scope_level == current.scope_level + 1
+                                && scope
+                                    .parent
+                                    .as_ref()
+                                    .map(|p| Rc::ptr_eq(p, current))
+                                    .unwrap_or(false)
                         })
                         .cloned();
                     if let Some(scope) = for_scope {
@@ -351,40 +371,24 @@ impl TypeChecker {
                 // If variable not found, return Unknown (scope analyzer should have caught this)
                 self.get_variable_type(name).or(Some(Type::Unknown))
             }
-            Expression::Constant(constant) => {
-                Some(self.constant_to_type(constant))
-            }
+            Expression::Constant(constant) => Some(self.constant_to_type(constant)),
             Expression::StringLiteral(_) => {
                 // String literals are char arrays/pointers, not simple char values
                 Some(Type::String)
             }
-            Expression::BinaryOp(left, op, right) => {
-                self.check_binary_operation(left, op, right)
-            }
-            Expression::UnaryOp(op, expr) => {
-                self.check_unary_operation(op, expr)
-            }
+            Expression::BinaryOp(left, op, right) => self.check_binary_operation(left, op, right),
+            Expression::UnaryOp(op, expr) => self.check_unary_operation(op, expr),
             Expression::Assignment(left, op, right) => {
                 self.check_assignment_operation(left, op, right)
             }
             Expression::Conditional(condition, true_expr, false_expr) => {
                 self.check_conditional_expression(condition, true_expr, false_expr)
             }
-            Expression::FunctionCall(name, args) => {
-                self.check_function_call(name, args)
-            }
-            Expression::ArrayAccess(array, index) => {
-                self.check_array_access(array, index)
-            }
-            Expression::MemberAccess(obj, _member) => {
-                self.check_expression(obj)
-            }
-            Expression::PointerAccess(ptr, _member) => {
-                self.check_expression(ptr)
-            }
-            Expression::PostfixOp(expr, _op) => {
-                self.check_expression(expr)
-            }
+            Expression::FunctionCall(name, args) => self.check_function_call(name, args),
+            Expression::ArrayAccess(array, index) => self.check_array_access(array, index),
+            Expression::MemberAccess(obj, _member) => self.check_expression(obj),
+            Expression::PointerAccess(ptr, _member) => self.check_expression(ptr),
+            Expression::PostfixOp(expr, _op) => self.check_expression(expr),
             Expression::Cast(target_type, expr) => {
                 if let Some(_expr_type) = self.check_expression(expr) {
                     Some(self.type_specifier_to_type(target_type))
@@ -395,7 +399,12 @@ impl TypeChecker {
         }
     }
 
-    fn check_binary_operation(&mut self, left: &Expression, op: &BinaryOperator, right: &Expression) -> Option<Type> {
+    fn check_binary_operation(
+        &mut self,
+        left: &Expression,
+        op: &BinaryOperator,
+        right: &Expression,
+    ) -> Option<Type> {
         let left_type = match self.check_expression(left) {
             Some(t) => t,
             None => return None, // Error already reported
@@ -407,7 +416,10 @@ impl TypeChecker {
 
         match op {
             // Arithmetic operators (require numeric types)
-            BinaryOperator::Plus | BinaryOperator::Minus | BinaryOperator::Mult | BinaryOperator::Div => {
+            BinaryOperator::Plus
+            | BinaryOperator::Minus
+            | BinaryOperator::Mult
+            | BinaryOperator::Div => {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     self.record_error(TypeChkError::AttemptedAddOpOnNonNumeric, "+");
                     return Some(Type::Unknown); // Return Unknown type but continue checking
@@ -424,7 +436,10 @@ impl TypeChecker {
                 Some(left_type)
             }
             // Comparison operators (return boolean)
-            BinaryOperator::Less | BinaryOperator::LessEq | BinaryOperator::Greater | BinaryOperator::GreaterEq => {
+            BinaryOperator::Less
+            | BinaryOperator::LessEq
+            | BinaryOperator::Greater
+            | BinaryOperator::GreaterEq => {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     self.record_error(TypeChkError::ExpressionTypeMismatch, "comparison");
                     return Some(Type::Unknown);
@@ -508,7 +523,12 @@ impl TypeChecker {
         }
     }
 
-    fn check_assignment_operation(&mut self, left: &Expression, op: &AssignmentOperator, right: &Expression) -> Option<Type> {
+    fn check_assignment_operation(
+        &mut self,
+        left: &Expression,
+        op: &AssignmentOperator,
+        right: &Expression,
+    ) -> Option<Type> {
         let left_type = match self.check_expression(left) {
             Some(t) => t,
             None => return None, // Error already reported
@@ -526,8 +546,10 @@ impl TypeChecker {
                 }
                 Some(left_type)
             }
-            AssignmentOperator::PlusAssign | AssignmentOperator::MinusAssign |
-            AssignmentOperator::MultAssign | AssignmentOperator::DivAssign => {
+            AssignmentOperator::PlusAssign
+            | AssignmentOperator::MinusAssign
+            | AssignmentOperator::MultAssign
+            | AssignmentOperator::DivAssign => {
                 if !self.is_numeric_type(&left_type) || !self.is_numeric_type(&right_type) {
                     self.record_error(TypeChkError::AttemptedAddOpOnNonNumeric, "+= etc");
                     return Some(Type::Unknown);
@@ -548,7 +570,9 @@ impl TypeChecker {
                 }
                 Some(left_type)
             }
-            AssignmentOperator::AndAssign | AssignmentOperator::OrAssign | AssignmentOperator::XorAssign => {
+            AssignmentOperator::AndAssign
+            | AssignmentOperator::OrAssign
+            | AssignmentOperator::XorAssign => {
                 if !self.is_integer_type(&left_type) || !self.is_integer_type(&right_type) {
                     self.record_error(TypeChkError::AttemptedBitOpOnNonNumeric, "&= etc");
                     return Some(Type::Unknown);
@@ -558,13 +582,18 @@ impl TypeChecker {
         }
     }
 
-    fn check_conditional_expression(&mut self, condition: &Expression, true_expr: &Expression, false_expr: &Expression) -> Option<Type> {
+    fn check_conditional_expression(
+        &mut self,
+        condition: &Expression,
+        true_expr: &Expression,
+        false_expr: &Expression,
+    ) -> Option<Type> {
         // Condition must be boolean
         let cond_type = match self.check_expression(condition) {
             Some(t) => t,
             None => return Some(Type::Unknown), // Error already reported
         };
-        
+
         if cond_type != Type::Bool {
             self.record_error(TypeChkError::ExpectedBooleanExpression, "?:");
         }
@@ -573,7 +602,7 @@ impl TypeChecker {
             Some(t) => t,
             None => return Some(Type::Unknown), // Error already reported
         };
-        
+
         let false_type = match self.check_expression(false_expr) {
             Some(t) => t,
             None => return Some(Type::Unknown), // Error already reported
@@ -592,7 +621,12 @@ impl TypeChecker {
         // Look up function in symbol table - functions are always in global scope
         let global_scope = self.scope_analyzer.get_global_scope();
         if let Some(symbol) = global_scope.lookup(name) {
-            if let SymbolKind::Function { parameters, return_type, .. } = &symbol.kind {
+            if let SymbolKind::Function {
+                parameters,
+                return_type,
+                ..
+            } = &symbol.kind
+            {
                 // Check parameter count
                 if args.len() != parameters.len() {
                     self.record_error(TypeChkError::FnCallParamCount, name);
@@ -604,7 +638,9 @@ impl TypeChecker {
                 for i in 0..min_len {
                     if let Some(arg_type) = self.check_expression(&args[i]) {
                         let param_type = self.string_to_type(&parameters[i].param_type);
-                        if arg_type != Type::Unknown && !self.are_types_compatible(&param_type, &arg_type) {
+                        if arg_type != Type::Unknown
+                            && !self.are_types_compatible(&param_type, &arg_type)
+                        {
                             self.record_error(TypeChkError::FnCallParamType, name);
                         }
                     }
@@ -629,7 +665,7 @@ impl TypeChecker {
             Some(t) => t,
             None => return Some(Type::Unknown), // Error already reported
         };
-        
+
         if !self.is_integer_type(&index_type) {
             self.record_error(TypeChkError::ExpressionTypeMismatch, "[]");
         }
@@ -647,9 +683,7 @@ impl TypeChecker {
                 SymbolKind::Variable { type_spec, .. } => {
                     Some(self.type_specifier_to_type(type_spec))
                 }
-                SymbolKind::Parameter { param_type } => {
-                    Some(self.string_to_type(param_type))
-                }
+                SymbolKind::Parameter { param_type } => Some(self.string_to_type(param_type)),
                 _ => None,
             }
         } else {
@@ -666,6 +700,7 @@ impl TypeChecker {
             TypeSpecifier::Short => Type::Short,
             TypeSpecifier::Long => Type::Long,
             TypeSpecifier::Void => Type::Void,
+            TypeSpecifier::String => Type::String,
             TypeSpecifier::Signed | TypeSpecifier::Unsigned => Type::Int, // Simplified
         }
     }
@@ -679,6 +714,7 @@ impl TypeChecker {
             "short" => Type::Short,
             "long" => Type::Long,
             "void" => Type::Void,
+            "string" => Type::String,
             _ => Type::Unknown,
         }
     }
@@ -692,7 +728,10 @@ impl TypeChecker {
     }
 
     fn is_numeric_type(&self, t: &Type) -> bool {
-        matches!(t, Type::Int | Type::Float | Type::Double | Type::Char | Type::Short | Type::Long)
+        matches!(
+            t,
+            Type::Int | Type::Float | Type::Double | Type::Char | Type::Short | Type::Long
+        )
     }
 
     fn is_integer_type(&self, t: &Type) -> bool {
@@ -759,4 +798,3 @@ impl TypeChecker {
         !self.errors.is_empty()
     }
 }
-

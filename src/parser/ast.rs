@@ -36,7 +36,6 @@ pub enum ExternalDeclaration {
     FunctionDeclaration(FunctionDeclaration), // int func(int x);
 }
 
-
 #[derive(Debug, Clone)]
 pub struct FunctionDefinition {
     pub return_type: String,        // e.g., "int", "void"
@@ -69,8 +68,6 @@ pub enum Statement {
     Break,                                                  // break;
 }
 
-
-
 #[derive(Debug, Clone)]
 pub enum SpecifierQualifier {
     TypeSpecifier(TypeSpecifier), // type_specifier
@@ -88,6 +85,7 @@ pub enum TypeSpecifier {
     Signed,
     Unsigned,
     Void,
+    String,
 }
 
 #[derive(Debug, Clone)]
@@ -217,14 +215,12 @@ pub struct VariableDeclaration {
     pub initializer: Option<Initializer>,
 }
 
-
 #[derive(Debug, Clone)]
 pub struct FunctionDeclaration {
     pub return_type: String,
     pub name: String,
     pub parameters: Vec<Parameter>,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum StorageClass {

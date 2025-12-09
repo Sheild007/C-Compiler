@@ -1,5 +1,3 @@
-
-
 use regex::Regex;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -191,7 +189,7 @@ pub fn lex_with_regex(input: &str) -> Vec<Token> {
             } else if let Some(lit) = caps.name("floatlit") {
                 tokens.push(Token::FloatLit(lit.as_str().parse().unwrap()));
             } else if let Some(lit) = caps.name("stringlit") {
-                let s = &lit.as_str()[1..lit.as_str().len()-1];
+                let s = &lit.as_str()[1..lit.as_str().len() - 1];
                 tokens.push(Token::StringLit(s.to_string()));
             } else if let Some(_) = caps.name("assignop") {
                 tokens.push(Token::AssignOp);
